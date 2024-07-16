@@ -1,0 +1,23 @@
+From: Jose Luis Rivero <jrivero@osrfoundation.org>
+Date: Thu, 9 Nov 2023 17:02:54 +0000
+Subject: Change test output to avoid problems with bhlc false positives
+
+Last-Update: 2021-08-13
+Forwarded: No
+---
+ tests/informational.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/informational.cpp b/tests/informational.cpp
+index ae221ea..bd85127 100644
+--- a/tests/informational.cpp
++++ b/tests/informational.cpp
+@@ -15,7 +15,7 @@
+ int main() {
+     std::cout << "\nCLI11 information:\n";
+ 
+-    std::cout << "  C++ standard: ";
++    std::cout << "  CPP standard ver: ";
+ #if defined(CLI11_CPP20)
+     std::cout << 20;
+ #elif defined(CLI11_CPP17)

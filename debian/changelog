@@ -1,5 +1,40 @@
-template-repository (1.0-1) unstable; urgency=medium
+cli11 (2.4.1+ds-1) unstable; urgency=medium
 
-  * Initial release
+  * New upstream version 2.4.1+ds
+  * Rediff patches. Drop catch patch merged upstream
+  * Update d/copyright dates
+  * Added patch for the pkgconfig installation path
 
- -- Tsic404 <liuheng@deepin.org>  Sat, 28 Jan 2023 13:46:49 +0800
+ -- Jose Luis Rivero <jrivero@osrfoundation.org>  Mon, 26 Feb 2024 16:00:25 +0100
+
+cli11 (2.3.2+ds-1) unstable; urgency=medium
+
+  [ Debian Janitor ]
+  * Set upstream metadata fields: Bug-Database, Bug-Submit, Repository-Browse.
+  * Update standards version to 4.6.2, no changes needed.
+
+  [ Jose Luis Rivero ]
+  * New upstream version 2.3.2+ds
+  * Fix compilation with catch2 version 2.3.x
+    (Closes: #1054693)
+  * Remove custom configure step in d/rules
+  * Disable OptionalTest
+  * Update d/copyright
+
+ -- Jose Luis Rivero <jrivero@osrfoundation.org>  Mon, 13 Nov 2023 17:07:51 +0000
+
+cli11 (2.1.2+ds-1) unstable; urgency=medium
+
+  * New upstream version 2.1.2+ds
+  * Refresh patch
+  * Remove patch, fixed problem upstream
+  * Use 4.6.0 standard
+  * Move to unstable
+
+ -- Jose Luis Rivero <jrivero@osrfoundation.org>  Sun, 07 Nov 2021 18:16:52 +0000
+
+cli11 (2.0.0+ds-1) experimental; urgency=medium
+
+  * Initial release. (Closes: #927404)
+
+ -- Jose Luis Rivero <jrivero@osrfoundation.org>  Mon, 09 Aug 2021 17:50:55 +0000
