@@ -1,0 +1,17 @@
+Description: Back to use non arch dependant path for pkgconfig
+ Originally setup at https://github.com/CLIUtils/CLI11/pull/635/files but
+ reverted in
+ https://github.com/CLIUtils/CLI11/pull/916/files
+Author: Jose Luis Rivero <jrivero@osrfoundation.org>
+Forwarded: https://github.com/CLIUtils/CLI11/pull/1012
+Last-Update: 2024-02-26
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/cmake/CLI11GeneratePkgConfig.cmake
++++ b/cmake/CLI11GeneratePkgConfig.cmake
+@@ -4,4 +4,4 @@
+   configure_file("cmake/CLI11.pc.in" "CLI11.pc" @ONLY)
+ endif()
+ 
+-install(FILES "${PROJECT_BINARY_DIR}/CLI11.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
++install(FILES "${PROJECT_BINARY_DIR}/CLI11.pc" DESTINATION "${CMAKE_INSTALL_DATADIR}/pkgconfig")

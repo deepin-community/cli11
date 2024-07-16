@@ -1,0 +1,42 @@
+#!/bin/sh
+# autopkgtest check: very few things to test without other subcommands
+# (C) 2021 Jose Luis Rivero
+# Author: Jose Luis Rivero <jrivero@osrfoundation.org>
+
+set -e
+
+WORKDIR=$(mktemp -d)
+trap "rm -rf $WORKDIR" 0 INT QUIT ABRT PIPE TERM
+cd $WORKDIR
+
+cat <<EOF > CMakeLists.txt
+cmake_minimum_required(VERSION 3.5)
+
+project(cli_test VERSION 1.0.0)
+
+find_package(CLI11 2.0.0 REQUIRED)
+add_executable(cli_test cli_test.cc)
+EOF
+
+cat <<EOF2 > cli_test.cc
+#include <CLI/CLI.hpp>
+#include <string>
+
+int main(int argc, char** argv) {
+    CLI::App app{"App description"};
+
+    std::string filename = "default";
+    app.add_option("-f,--file", filename, "A help string");
+
+    CLI11_PARSE(app, argc, argv);
+    return 0;
+}
+EOF2
+
+cmake .
+echo "configure: OK"
+make
+echo "build: OK"
+
+./cli_test
+echo "cli_test run: OK"
