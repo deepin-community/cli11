@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2024, University of Cincinnati, developed by Henry Schreiner
+// Copyright (c) 2017-2025, University of Cincinnati, developed by Henry Schreiner
 // under NSF AWARD 1414736 and by the respective contributors.
 // All rights reserved.
 //
@@ -12,6 +12,8 @@
 
 #include "catch.hpp"
 #include <fstream>
+#include <memory>
+#include <string>
 
 class SimpleFormatter : public CLI::FormatterBase {
   public:
@@ -57,11 +59,9 @@ TEST_CASE("Formatter: OptCustomize", "[formatter]") {
     std::string help = app.help();
 
     CHECK_THAT(help, Contains("(MUST HAVE)"));
-    CHECK(help == "My prog\n"
-                  "Usage: [OPTIONS]\n\n"
-                  "Options:\n"
-                  "  -h,--help              Print this help message and exit\n"
-                  "  --opt INT (MUST HAVE)  Something\n");
+    CHECK_THAT(help, Contains("Something"));
+    CHECK_THAT(help, Contains("--opt INT"));
+    CHECK_THAT(help, Contains("-h,   --help           Print"));
 }
 
 TEST_CASE("Formatter: OptCustomizeSimple", "[formatter]") {
@@ -76,11 +76,10 @@ TEST_CASE("Formatter: OptCustomizeSimple", "[formatter]") {
     std::string help = app.help();
 
     CHECK_THAT(help, Contains("(MUST HAVE)"));
-    CHECK(help == "My prog\n"
-                  "Usage: [OPTIONS]\n\n"
-                  "Options:\n"
-                  "  -h,--help              Print this help message and exit\n"
-                  "  --opt INT (MUST HAVE)  Something\n");
+    CHECK_THAT(help, Contains("(MUST HAVE)"));
+    CHECK_THAT(help, Contains("Something"));
+    CHECK_THAT(help, Contains("--opt INT"));
+    CHECK_THAT(help, Contains("-h,   --help           Print"));
 }
 
 TEST_CASE("Formatter: OptCustomizeOptionText", "[formatter]") {
@@ -94,11 +93,6 @@ TEST_CASE("Formatter: OptCustomizeOptionText", "[formatter]") {
     std::string help = app.help();
 
     CHECK_THAT(help, Contains("(ARG)"));
-    CHECK(help == "My prog\n"
-                  "Usage: [OPTIONS]\n\n"
-                  "Options:\n"
-                  "  -h,--help              Print this help message and exit\n"
-                  "  --opt (ARG)            Something\n");
 }
 
 TEST_CASE("Formatter: FalseFlagExample", "[formatter]") {
@@ -129,16 +123,13 @@ TEST_CASE("Formatter: AppCustomize", "[formatter]") {
     appfmt->label("Usage", "Run");
     app.formatter(appfmt);
 
-    app.add_subcommand("subcom2", "This");
+    app.add_subcommand("subcom2", "That");
 
     std::string help = app.help();
-    CHECK(help == "My prog\n"
-                  "Run: [OPTIONS] [SUBCOMMAND]\n\n"
-                  "Options:\n"
-                  "  -h,--help         Print this help message and exit\n\n"
-                  "Subcommands:\n"
-                  "  subcom1           This\n"
-                  "  subcom2           This\n");
+    CHECK_THAT(help, Contains("Run: [OPTIONS] [SUBCOMMANDS]\n\n"));
+    CHECK_THAT(help, Contains("\nSUBCOMMANDS:\n"));
+    CHECK_THAT(help, Contains("  subcom1           This \n"));
+    CHECK_THAT(help, Contains("  subcom2           That \n"));
 }
 
 TEST_CASE("Formatter: AppCustomizeSimple", "[formatter]") {
@@ -148,16 +139,13 @@ TEST_CASE("Formatter: AppCustomizeSimple", "[formatter]") {
     app.get_formatter()->column_width(20);
     app.get_formatter()->label("Usage", "Run");
 
-    app.add_subcommand("subcom2", "This");
+    app.add_subcommand("subcom2", "That");
 
     std::string help = app.help();
-    CHECK(help == "My prog\n"
-                  "Run: [OPTIONS] [SUBCOMMAND]\n\n"
-                  "Options:\n"
-                  "  -h,--help         Print this help message and exit\n\n"
-                  "Subcommands:\n"
-                  "  subcom1           This\n"
-                  "  subcom2           This\n");
+    CHECK_THAT(help, Contains("Run: [OPTIONS] [SUBCOMMANDS]\n\n"));
+    CHECK_THAT(help, Contains("\nSUBCOMMANDS:\n"));
+    CHECK_THAT(help, Contains("  subcom1           This \n"));
+    CHECK_THAT(help, Contains("  subcom2           That \n"));
 }
 
 TEST_CASE("Formatter: AllSub", "[formatter]") {
@@ -206,4 +194,84 @@ TEST_CASE("Formatter: NamelessSubInGroup", "[formatter]") {
     CHECK_THAT(help, Contains("group1"));
     CHECK_THAT(help, Contains("sub2"));
     CHECK(help.find("pos") == std::string::npos);
+}
+
+TEST_CASE("Formatter: Footer", "[formatter]") {
+    CLI::App app{"My prog"};
+    std::string footer_string{"this is       a test of the footer "
+                              "systemsssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss to  Pr e  s "
+                              " e  r  v  e  SPA C ES"};
+    app.footer(footer_string);
+    app.add_flag("--option", "MyFlag");
+    app.get_formatter()->footer_paragraph_width(50);
+    app.get_formatter()->enable_footer_formatting(false);
+    CHECK(!app.get_formatter()->is_footer_paragraph_formatting_enabled());
+    std::string help = app.help("", CLI::AppFormatMode::Normal);
+    CHECK_THAT(help, Contains("is       a"));
+    CHECK_THAT(help, Contains("to  Pr e  s  e  r  v  e  SPA C ES"));
+    CHECK_THAT(help, Contains(footer_string));
+
+    help = app.help("", CLI::AppFormatMode::Sub);
+    CHECK_THAT(help, Contains("is       a"));
+    CHECK_THAT(help, Contains("to  Pr e  s  e  r  v  e  SPA C ES"));
+    CHECK_THAT(help, Contains(footer_string));
+
+    app.get_formatter()->enable_footer_formatting(true);
+    CHECK(app.get_formatter()->is_footer_paragraph_formatting_enabled());
+    help = app.help("", CLI::AppFormatMode::Normal);
+    CHECK_THAT(help, !Contains("is       a"));
+    CHECK_THAT(help, !Contains("to  Pr e  s  e  r  v  e  SPA C ES"));
+    CHECK_THAT(help, !Contains(footer_string));
+
+    help = app.help("", CLI::AppFormatMode::Sub);
+    CHECK_THAT(help, !Contains("is       a"));
+    CHECK_THAT(help, !Contains("to  Pr e  s  e  r  v  e  SPA C ES"));
+    CHECK_THAT(help, !Contains(footer_string));
+}
+
+TEST_CASE("Formatter: Description", "[formatter]") {
+    CLI::App app{"My prog"};
+    std::string desc_string{"this is       a test of the footer "
+                            "systemsssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss to  Pr e  s  "
+                            "e  r  v  e  SPA C ES"};
+    app.description(desc_string);
+    app.add_flag("--option", "MyFlag");
+    app.get_formatter()->description_paragraph_width(50);
+    app.get_formatter()->enable_description_formatting(false);
+    CHECK(!app.get_formatter()->is_description_paragraph_formatting_enabled());
+    std::string help = app.help("", CLI::AppFormatMode::Normal);
+    CHECK_THAT(help, Contains("is       a"));
+    CHECK_THAT(help, Contains("to  Pr e  s  e  r  v  e  SPA C ES"));
+    CHECK_THAT(help, Contains(desc_string));
+
+    help = app.help("", CLI::AppFormatMode::Sub);
+    CHECK_THAT(help, Contains("is       a"));
+    CHECK_THAT(help, Contains("to  Pr e  s  e  r  v  e  SPA C ES"));
+    CHECK_THAT(help, Contains(desc_string));
+
+    app.get_formatter()->enable_description_formatting(true);
+    CHECK(app.get_formatter()->is_description_paragraph_formatting_enabled());
+    help = app.help("", CLI::AppFormatMode::Normal);
+    CHECK_THAT(help, !Contains("is       a"));
+    CHECK_THAT(help, !Contains("to  Pr e  s  e  r  v  e  SPA C ES"));
+    CHECK_THAT(help, !Contains(desc_string));
+
+    help = app.help("", CLI::AppFormatMode::Sub);
+    CHECK_THAT(help, !Contains("is       a"));
+    CHECK_THAT(help, !Contains("to  Pr e  s  e  r  v  e  SPA C ES"));
+    CHECK_THAT(help, !Contains(desc_string));
+}
+
+TEST_CASE("Formatter: LongOptionAlignment", "[formatter]") {
+    CLI::App app{"My prog"};
+
+    app.get_formatter()->long_option_alignment_ratio(6 / 30.f);
+
+    int v{0};
+    app.add_option("--opt", v, "Something");
+
+    std::string help = app.help();
+
+    CHECK_THAT(help, Contains("\n  -h, --help                  Print"));
+    CHECK_THAT(help, Contains("\n      --opt INT               Something"));
 }

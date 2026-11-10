@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2024, University of Cincinnati, developed by Henry Schreiner
+// Copyright (c) 2017-2025, University of Cincinnati, developed by Henry Schreiner
 // under NSF AWARD 1414736 and by the respective contributors.
 // All rights reserved.
 //
@@ -9,6 +9,7 @@
 #include "catch.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <complex>
@@ -16,16 +17,19 @@
 #include <cstdlib>
 #include <deque>
 #include <forward_list>
+#include <limits>
 #include <list>
 #include <map>
 #include <queue>
 #include <set>
+#include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-using Catch::literals::operator"" _a;
+using Catch::Matchers::WithinRel;
 
 TEST_CASE_METHOD(TApp, "OneStringAgain", "[optiontype]") {
     std::string str;
@@ -45,78 +49,6 @@ TEST_CASE_METHOD(TApp, "OneStringFunction", "[optiontype]") {
     CHECK(app.count("-s") == 1u);
     CHECK(app.count("--string") == 1u);
     CHECK("mystring" == str);
-}
-
-TEST_CASE_METHOD(TApp, "doubleFunction", "[optiontype]") {
-    double res{0.0};
-    app.add_option_function<double>("--val", [&res](double val) { res = std::abs(val + 54); });
-    args = {"--val", "-354.356"};
-    run();
-    CHECK(300.356_a == res);
-    // get the original value as entered as an integer
-    CHECK(-354.356_a == app["--val"]->as<float>());
-}
-
-TEST_CASE_METHOD(TApp, "doubleFunctionFail", "[optiontype]") {
-    double res = NAN;
-    app.add_option_function<double>("--val", [&res](double val) { res = std::abs(val + 54); });
-    args = {"--val", "not_double"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-}
-
-TEST_CASE_METHOD(TApp, "doubleVectorFunction", "[optiontype]") {
-    std::vector<double> res;
-    app.add_option_function<std::vector<double>>("--val", [&res](const std::vector<double> &val) {
-        res = val;
-        std::transform(res.begin(), res.end(), res.begin(), [](double v) { return v + 5.0; });
-    });
-    args = {"--val", "5", "--val", "6", "--val", "7"};
-    run();
-    CHECK(3u == res.size());
-    CHECK(10.0_a == res[0]);
-    CHECK(12.0_a == res[2]);
-}
-
-TEST_CASE_METHOD(TApp, "doubleVectorFunctionFail", "[optiontype]") {
-    std::vector<double> res;
-    std::string vstring = "--val";
-    app.add_option_function<std::vector<double>>(vstring, [&res](const std::vector<double> &val) {
-        res = val;
-        std::transform(res.begin(), res.end(), res.begin(), [](double v) { return v + 5.0; });
-    });
-    args = {"--val", "five", "--val", "nine", "--val", "7"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-    // check that getting the results through the results function generates the same error
-    CHECK_THROWS_AS(app[vstring]->results(res), CLI::ConversionError);
-    auto strvec = app[vstring]->as<std::vector<std::string>>();
-    CHECK(3u == strvec.size());
-}
-
-TEST_CASE_METHOD(TApp, "doubleVectorFunctionRunCallbackOnDefault", "[optiontype]") {
-    std::vector<double> res;
-    auto *opt = app.add_option_function<std::vector<double>>("--val", [&res](const std::vector<double> &val) {
-        res = val;
-        std::transform(res.begin(), res.end(), res.begin(), [](double v) { return v + 5.0; });
-    });
-    args = {"--val", "5", "--val", "6", "--val", "7"};
-    run();
-    CHECK(3u == res.size());
-    CHECK(10.0 == res[0]);
-    CHECK(12.0 == res[2]);
-    CHECK(!opt->get_run_callback_for_default());
-    opt->run_callback_for_default();
-    opt->default_val(std::vector<int>{2, 1, -2});
-    CHECK(7.0 == res[0]);
-    CHECK(3.0 == res[2]);
-
-    CHECK_THROWS_AS(opt->default_val("this is a string"), CLI::ConversionError);
-    auto vec = opt->as<std::vector<double>>();
-    REQUIRE(3U == vec.size());
-    CHECK(5.0 == vec[0]);
-    CHECK(7.0 == vec[2]);
-    opt->check(CLI::Number);
-    opt->run_callback_for_default(false);
-    CHECK_THROWS_AS(opt->default_val("this is a string"), CLI::ValidationError);
 }
 
 TEST_CASE_METHOD(TApp, "BoolAndIntFlags", "[optiontype]") {
@@ -219,170 +151,6 @@ TEST_CASE_METHOD(TApp, "atomic_int_option", "[optiontype]") {
     args = {"--int"};
     run();
     CHECK(0 == i);
-}
-
-static const std::map<std::string, double> testValuesDouble{
-    {"3.14159", 3.14159},
-    {"-3.14159", -3.14159},
-    {"+1.0", 1.0},
-    {"-0.01", -0.01},
-    {"5e22", 5e22},
-    {"-2E-2", -2e-2},
-    {"5e+22", 5e22},
-    {"1e06", 1e6},
-    {"6.626e-34", 6.626e-34},
-    {"6.626e+34", 6.626e34},
-    {"-6.626e-34", -6.626e-34},
-    {"224_617.445_991", 224617.445991},
-    {"224'617.445'991", 224617.445991},
-    {"inf", std::numeric_limits<double>::infinity()},
-    {"+inf", std::numeric_limits<double>::infinity()},
-    {"-inf", -std::numeric_limits<double>::infinity()},
-    {"nan", std::numeric_limits<double>::signaling_NaN()},
-    {"+nan", std::numeric_limits<double>::signaling_NaN()},
-    {"-nan", -std::numeric_limits<double>::signaling_NaN()},
-
-};
-
-TEST_CASE_METHOD(TApp, "floatingConversions", "[optiontype]") {
-    auto test_data = GENERATE(from_range(testValuesDouble));
-
-    double val{0};
-    app.add_option("--val", val);
-
-    args = {"--val", test_data.first};
-
-    run();
-    if(std::isnan(test_data.second)) {
-        CHECK(std::isnan(val));
-    } else {
-
-        CHECK_THAT(val, WithinRel(test_data.second, 1e-11));
-    }
-}
-
-static const std::map<std::string, std::int64_t> testValuesInt{
-    {"+99", 99},
-    {"99", 99},
-    {"-99", -99},
-    {"0xDEADBEEF", 0xDEADBEEF},
-    {"0xdeadbeef", 0xDEADBEEF},
-    {"0XDEADBEEF", 0xDEADBEEF},
-    {"0Xdeadbeef", 0xDEADBEEF},
-    {"0xdead_beef", 0xDEADBEEF},
-    {"0xdead'beef", 0xDEADBEEF},
-    {"0o01234567", 001234567},
-    {"0o755", 0755},
-    {"0755", 0755},
-    {"995862_262", 995862262},
-    {"995862262", 995862262},
-    {"-995862275", -995862275},
-    {"-995'862'275", -995862275},
-    {"0b11010110", 0xD6},
-    {"0b1101'0110", 0xD6},
-    {"1_2_3_4_5", 12345},
-};
-
-TEST_CASE_METHOD(TApp, "intConversions", "[optiontype]") {
-
-    auto test_data = GENERATE(from_range(testValuesInt));
-
-    std::int64_t val{0};
-    app.add_option("--val", val);
-
-    args = {"--val", test_data.first};
-
-    run();
-
-    CHECK(val == test_data.second);
-}
-
-TEST_CASE_METHOD(TApp, "intConversionsErange", "[optiontype]") {
-
-    std::int64_t val{0};
-    app.add_option("--val", val);
-
-    args = {"--val", "0o11545241241415151512312415123125667"};
-
-    CHECK_THROWS_AS(run(), CLI::ParseError);
-
-    args = {"--val", "0b1011000001101011001100110011111000101010101011111111111111111111111001010111011100"};
-
-    CHECK_THROWS_AS(run(), CLI::ParseError);
-}
-
-static const std::map<std::string, std::uint64_t> testValuesUInt{
-    {"+99", 99},
-    {"99", 99},
-    {"0xDEADBEEF", 0xDEADBEEF},
-    {"0xdeadbeef", 0xDEADBEEF},
-    {"0XDEADBEEF", 0xDEADBEEF},
-    {"0Xdeadbeef", 0xDEADBEEF},
-    {"0xdead_beef", 0xDEADBEEF},
-    {"0xdead'beef", 0xDEADBEEF},
-    {"0o01234567", 001234567},
-    {"0o755", 0755},
-    {"0755", 0755},
-    {"995862_262", 995862262},
-    {"995862262", 995862262},
-    {"+995862275", +995862275},
-    {"995'862'275", 995862275},
-    {"0b11010110", 0xD6},
-    {"0b1101'0110", 0xD6},
-    {"1_2_3_4_5", 12345},
-};
-
-TEST_CASE_METHOD(TApp, "uintConversions", "[optiontype]") {
-
-    auto test_data = GENERATE(from_range(testValuesUInt));
-
-    std::uint64_t val{0};
-    app.add_option("--val", val);
-
-    args = {"--val", test_data.first};
-
-    run();
-
-    CHECK(val == test_data.second);
-}
-
-TEST_CASE_METHOD(TApp, "uintConversionsErange", "[optiontype]") {
-
-    std::uint64_t val{0};
-    app.add_option("--val", val);
-
-    args = {"--val", "0o11545241241415151512312415123125667"};
-
-    CHECK_THROWS_AS(run(), CLI::ParseError);
-
-    args = {"--val", "0b1011000001101011001100110011111000101010101011111111111111111111111001010111011100"};
-
-    CHECK_THROWS_AS(run(), CLI::ParseError);
-}
-
-TEST_CASE_METHOD(TApp, "CharOption", "[optiontype]") {
-    char c1{'t'};
-    app.add_option("-c", c1);
-
-    args = {"-c", "g"};
-    run();
-    CHECK('g' == c1);
-
-    args = {"-c", "1"};
-    run();
-    CHECK('1' == c1);
-
-    args = {"-c", "77"};
-    run();
-    CHECK(77 == c1);
-
-    // convert hex for digit
-    args = {"-c", "0x44"};
-    run();
-    CHECK(0x44 == c1);
-
-    args = {"-c", "751615654161688126132138844896646748852"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
 }
 
 TEST_CASE_METHOD(TApp, "vectorDefaults", "[optiontype]") {
@@ -577,86 +345,6 @@ TEST_CASE_METHOD(TApp, "VectorIndexedValidator", "[optiontype]") {
     CHECK_THROWS_AS(run(), CLI::ValidationError);
 }
 
-TEST_CASE_METHOD(TApp, "IntegerOverFlowShort", "[optiontype]") {
-    std::int16_t A{0};
-    std::uint16_t B{0};
-
-    app.add_option("-a", A);
-    app.add_option("-b", B);
-
-    args = {"-a", "2626254242"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "2626254242"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "-26262"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "-262624262525"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-}
-
-TEST_CASE_METHOD(TApp, "IntegerOverFlowInt", "[optiontype]") {
-    int A{0};
-    unsigned int B{0};
-
-    app.add_option("-a", A);
-    app.add_option("-b", B);
-
-    args = {"-a", "262625424225252"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "262625424225252"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "-2626225252"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "-26262426252525252"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-}
-
-TEST_CASE_METHOD(TApp, "IntegerOverFlowLong", "[optiontype]") {
-    std::int32_t A{0};
-    std::uint32_t B{0};
-
-    app.add_option("-a", A);
-    app.add_option("-b", B);
-
-    args = {"-a", "1111111111111111111111111111"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "1111111111111111111111111111"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "-2626225252"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "-111111111111111111111111"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-}
-
-TEST_CASE_METHOD(TApp, "IntegerOverFlowLongLong", "[optiontype]") {
-    std::int64_t A{0};
-    std::uint64_t B{0};
-
-    app.add_option("-a", A);
-    app.add_option("-b", B);
-
-    args = {"-a", "1111111111111111111111111111111111111111111111111111111111"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "1111111111111111111111111111111111111111111111111111111111"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "-2626225252"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-
-    args = {"-b", "-111111111111111111111111111111111111111111111111111111111"};
-    CHECK_THROWS_AS(run(), CLI::ConversionError);
-}
-
 TEST_CASE_METHOD(TApp, "VectorUnlimString", "[optiontype]") {
     std::vector<std::string> strvec;
     std::vector<std::string> answer{"mystring", "mystring2", "mystring3"};
@@ -696,6 +384,45 @@ TEST_CASE_METHOD(TApp, "stringLikeTests", "[optiontype]") {
     CHECK("op str" == std::string(m_type));
     CHECK("bca" == m_type.m_value);
 }
+
+#if (defined(CLI11_ENABLE_EXTRA_VALIDATORS) && CLI11_ENABLE_EXTRA_VALIDATORS == 1) ||                                  \
+    (!defined(CLI11_DISABLE_EXTRA_VALIDATORS) || CLI11_DISABLE_EXTRA_VALIDATORS == 0)
+
+#if CLI11_HAS_FILESYSTEM
+#include <string_view>
+// test code from https://github.com/CLIUtils/CLI11/issues/881
+// https://github.com/Jean1995
+TEST_CASE_METHOD(TApp, "AsStringView", "[app]") {
+    app.add_option("--input", "input option")->default_val("optA")->check(CLI::IsMember({"optA", "optB", "optC"}));
+
+    args = {};
+    run();
+    auto inputStr = app["--input"]->as<std::string_view>();
+    CHECK(inputStr == "optA");
+
+    args = {"--input", "optC"};
+    run();
+    inputStr = app["--input"]->as<std::string_view>();
+    CHECK(inputStr == "optC");
+}
+
+#endif
+
+TEST_CASE_METHOD(TApp, "AsStringRef", "[app]") {
+    app.add_option("--input", "input option")->default_val("optA")->check(CLI::IsMember({"optA", "optB", "optC"}));
+
+    args = {};
+    run();
+    const std::string &inputStr = app["--input"]->as<std::string>();
+    CHECK(inputStr == "optA");
+
+    args = {"--input", "optC"};
+    run();
+    const std::string &inputStr2 = app["--input"]->as<std::string>();
+    CHECK(inputStr2 == "optC");
+}
+
+#endif
 
 TEST_CASE_METHOD(TApp, "VectorExpectedRange", "[optiontype]") {
     std::vector<std::string> strvec;
@@ -776,26 +503,6 @@ TEST_CASE_METHOD(TApp, "CustomDoubleOptionAlt", "[optiontype]") {
     CHECK(1.5 == Approx(custom_opt.second));
 }
 
-// now with tuple support this is possible
-TEST_CASE_METHOD(TApp, "floatPair", "[optiontype]") {
-
-    std::pair<float, float> custom_opt;
-
-    auto *opt = app.add_option("--fp", custom_opt)->delimiter(',');
-    opt->default_str("3.4,2.7");
-
-    args = {"--fp", "12", "1.5"};
-
-    run();
-    CHECK(12.0f == Approx(custom_opt.first));
-    CHECK(1.5f == Approx(custom_opt.second));
-    args = {};
-    opt->force_callback();
-    run();
-    CHECK(3.4f == Approx(custom_opt.first));
-    CHECK(2.7f == Approx(custom_opt.second));
-}
-
 // now with independent type sizes and expected this is possible
 TEST_CASE_METHOD(TApp, "vectorPair", "[optiontype]") {
 
@@ -818,6 +525,22 @@ TEST_CASE_METHOD(TApp, "vectorPair", "[optiontype]") {
     opt->check(CLI::PositiveNumber.application_index(0));
 
     CHECK_THROWS_AS(run(), CLI::ValidationError);
+}
+
+// now with independent type sizes and expected this is possible
+TEST_CASE_METHOD(TApp, "vectorArray", "[optiontype]") {
+
+    std::vector<std::array<int, 3>> custom_opt;
+
+    auto *opt = app.add_option("--set", custom_opt);
+
+    args = {"--set", "1", "2", "3", "--set", "3", "4", "5"};
+
+    run();
+    REQUIRE(2u == custom_opt.size());
+    CHECK(1 == custom_opt[0][0]);
+    CHECK(4 == custom_opt[1][1]);
+    CHECK(opt->get_type_size() == 3);
 }
 
 TEST_CASE_METHOD(TApp, "vectorPairFail", "[optiontype]") {
@@ -885,6 +608,50 @@ TEST_CASE_METHOD(TApp, "vectorPairTypeRange", "[optiontype]") {
     CHECK(custom_opt[1].second.empty());
     CHECK(-1 == custom_opt[2].first);
     CHECK("str4" == custom_opt[2].second);
+}
+
+TEST_CASE_METHOD(TApp, "ArrayTriple", "[optiontype]") {
+
+    using TY = std::array<int, 3>;
+    TY custom_opt;
+
+    app.add_option("posit", custom_opt);
+
+    args = {"12", "1", "5"};
+
+    run();
+    CHECK(12 == custom_opt[0]);
+    CHECK(1 == custom_opt[1]);
+    CHECK(5 == custom_opt[2]);
+
+    // enable_if_t<!std::is_convertible<T, std::string>::value && !std::is_constructible<std::string, T>::value &&
+    //    !is_ostreamable<T>::value && is_tuple_like<T>::value && type_count_base<T>::value >= 2,
+    //   detail::enabler>>
+
+    CHECK(!std::is_convertible<TY, std::string>::value);
+    CHECK(!std::is_constructible<std::string, TY>::value);
+    CHECK(!CLI::detail::is_ostreamable<TY>::value);
+    auto ts = std::tuple_size<typename std::decay<TY>::type>::value;
+    CHECK(ts == 3);
+
+    auto vb = CLI::detail::type_count_base<TY>::value;
+    CHECK(vb >= 2);
+    CHECK(!CLI::detail::is_complex<TY>::value);
+    CHECK(CLI::detail::is_tuple_like<TY>::value);
+}
+
+TEST_CASE_METHOD(TApp, "ArrayPair", "[optiontype]") {
+
+    using TY = std::array<int, 2>;
+    TY custom_opt;
+
+    app.add_option("posit", custom_opt);
+
+    args = {"12", "1"};
+
+    run();
+    CHECK(12 == custom_opt[0]);
+    CHECK(1 == custom_opt[1]);
 }
 
 // now with independent type sizes and expected this is possible
@@ -1210,6 +977,27 @@ TEST_CASE_METHOD(TApp, "vectorSingleArg", "[optiontype]") {
     CHECK("4" == extra);
 }
 
+TEST_CASE_METHOD(TApp, "vectorEmptyArg", "[optiontype]") {
+
+    std::vector<std::string> cv{"test"};
+    app.add_option("-c", cv);
+    args = {"-c", "test1", "[]"};
+
+    run();
+    CHECK(cv.size() == 1);
+    args = {"-c", "test1", "[[]]"};
+
+    run();
+    CHECK(cv.size() == 2);
+    CHECK(cv[1] == "[]");
+
+    args = {"-c", "test1", "[[aa]]"};
+
+    run();
+    CHECK(cv.size() == 2);
+    CHECK(cv[1] == "[a]");
+}
+
 TEST_CASE_METHOD(TApp, "vectorDoubleArg", "[optiontype]") {
 
     std::vector<std::pair<int, std::string>> cv;
@@ -1221,6 +1009,29 @@ TEST_CASE_METHOD(TApp, "vectorDoubleArg", "[optiontype]") {
     run();
     CHECK(2U == cv.size());
     CHECK(2U == extras.size());
+}
+
+TEST_CASE_METHOD(TApp, "vectorEmpty", "[optiontype]") {
+
+    std::vector<std::string> cv{};
+    app.add_option("-c", cv)->expected(0, 2);
+
+    args = {"-c", "{}"};
+
+    run();
+    CHECK(cv.empty());
+}
+
+TEST_CASE_METHOD(TApp, "vectorVectorArg", "[optiontype]") {
+
+    std::vector<std::vector<std::string>> cv{};
+    app.add_option("-c", cv);
+    args = {"-c", "[[a,b]]"};
+
+    run();
+    CHECK(cv.size() == 1);
+    CHECK(cv[0].size() == 2);
+    CHECK(cv[0][0] == "a");
 }
 
 TEST_CASE_METHOD(TApp, "OnParseCall", "[optiontype]") {

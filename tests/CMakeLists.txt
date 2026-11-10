@@ -1,16 +1,12 @@
-if(CLI11_SANITIZERS AND ${CMAKE_VERSION} VERSION_GREATER "3.13.0")
+if(CLI11_SANITIZERS AND ${CMAKE_VERSION} VERSION_GREATER "3.15")
   message(STATUS "Using arsenm/sanitizers-cmake")
   FetchContent_Declare(
     sanitizers
     GIT_REPOSITORY https://github.com/arsenm/sanitizers-cmake.git
     GIT_SHALLOW 1
-    GIT_TAG 3f0542e)
+    GIT_TAG 0573e2e)
 
-  FetchContent_GetProperties(sanitizers)
-
-  if(NOT sanitizers_POPULATED)
-    FetchContent_Populate(sanitizers)
-  endif()
+  FetchContent_MakeAvailable(sanitizers)
 
   list(APPEND CMAKE_MODULE_PATH "${sanitizers_SOURCE_DIR}/cmake")
 
@@ -35,6 +31,7 @@ set(CLI11_TESTS
     HelpersTest
     ConfigFileTest
     OptionTypeTest
+    NumericTypeTest
     SimpleTest
     AppTest
     SetTest
@@ -49,7 +46,9 @@ set(CLI11_TESTS
     StringParseTest
     ComplexTypeTest
     TrueFalseTest
+    localeTest
     OptionGroupTest
+    ExtraValidatorsTest
     EncodingTest)
 
 if(WIN32)
@@ -106,7 +105,7 @@ file(
   GLOB_RECURSE DATA_FILES
   LIST_DIRECTORIES false
   RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
-  "${CMAKE_CURRENT_SOURCE_DIR}/data/*")
+  "${CMAKE_CURRENT_SOURCE_DIR}/data/*" "${CMAKE_CURRENT_SOURCE_DIR}/tests/.gitkeep")
 
 foreach(DATA_FILE IN LISTS DATA_FILES)
   add_custom_command(
@@ -117,6 +116,13 @@ foreach(DATA_FILE IN LISTS DATA_FILES)
     VERBATIM)
 endforeach()
 add_custom_target(cli11_test_data DEPENDS ${DATA_FILES})
+set_target_properties(cli11_test_data PROPERTIES FOLDER "Tests/Apps")
+
+# Make a shim if we are building single file tests
+if(CLI11_SINGLE_FILE AND CLI11_INSTALL_PACKAGE_TESTS)
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/test_single/CLI/CLI.hpp" "#include <CLI11.hpp>")
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/test_single/CLI/CLI.hpp" DESTINATION include/CLI)
+endif()
 
 # Build dependent applications which are launched from test code
 set(CLI11_DEPENDENT_APPLICATIONS ensure_utf8 ensure_utf8_twice)
@@ -124,6 +130,7 @@ set(CLI11_DEPENDENT_APPLICATIONS ensure_utf8 ensure_utf8_twice)
 foreach(APP IN LISTS CLI11_DEPENDENT_APPLICATIONS)
   add_executable(${APP} applications/${APP}.cpp)
   target_include_directories(${APP} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  set_target_properties(${APP} PROPERTIES FOLDER "Tests/Apps")
 endforeach()
 
 function(add_dependent_application_definitions TARGET)
@@ -131,6 +138,10 @@ function(add_dependent_application_definitions TARGET)
     string(TOUPPER ${APP} APP_UPPERCASE)
     target_compile_definitions(${TARGET}
                                PRIVATE CLI11_${APP_UPPERCASE}_EXE="$<TARGET_FILE:${APP}>")
+
+    if(WIN32)
+      target_link_libraries(${APP} PRIVATE Shell32)
+    endif()
   endforeach()
 endfunction()
 
@@ -238,6 +249,7 @@ if(CLI11_FORCE_LIBCXX)
     PROPERTY LINK_FLAGS -stdlib=libc++)
 endif()
 
+set_target_properties(informational PROPERTIES FOLDER "Tests/Apps")
 # Force this to be in a standard location so CTest can find it
 set_target_properties(
   informational
@@ -280,7 +292,7 @@ endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL Coverage)
   include(CodeCoverage)
-  setup_target_for_coverage(
+  setup_target_for_coverage_lcov(
     NAME
     CLI11_coverage
     EXECUTABLE
@@ -309,7 +321,7 @@ if(CLI11_INSTALL_PACKAGE_TESTS)
 
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/find_package_tests")
 
-  if(MSVC AND ${CMAKE_VERSION} VERSION_GREATER 3.12.9)
+  if(MSVC)
     # Tests for other CMake projects including and using CLI11 using find_package
     add_test(
       NAME find-package-testsA
@@ -350,7 +362,6 @@ if(CLI11_INSTALL_PACKAGE_TESTS)
     add_test(
       package-config-tests
       ${CMAKE_CTEST_COMMAND}
-      -C
       --build-and-test
       "${CMAKE_CURRENT_SOURCE_DIR}/package_config_tests"
       "${CMAKE_CURRENT_BINARY_DIR}/package_config_tests"

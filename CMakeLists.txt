@@ -1,16 +1,6 @@
-cmake_minimum_required(VERSION 3.5)
-# Note: this is a header only library. If you have an older CMake than 3.5,
+cmake_minimum_required(VERSION 3.14...4.1)
+# Note: this is a header only library. If you have an older CMake than 3.14,
 # just add the CLI11/include directory and that's all you need to do.
-
-# Make sure users don't get warnings on a tested (3.5 to 3.28) version
-# of CMake. For most of the policies, the new version is better (hence the change).
-# We don't use the 3.5...3.28 syntax because of a bug in an older MSVC's
-# built-in and modified CMake 3.11
-if(${CMAKE_VERSION} VERSION_LESS 3.28)
-  cmake_policy(VERSION ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION})
-else()
-  cmake_policy(VERSION 3.28)
-endif()
 
 set(VERSION_REGEX "#define CLI11_VERSION[ \t]+\"(.+)\"")
 
@@ -35,9 +25,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 
   find_package(Doxygen)
 
-  if(CMAKE_VERSION VERSION_LESS 3.10)
-    message(STATUS "CMake 3.10+ adds Doxygen support. Update CMake to build documentation")
-  elseif(NOT Doxygen_FOUND)
+  if(NOT Doxygen_FOUND)
     message(STATUS "Doxygen not found, building docs has been disabled")
   endif()
 
@@ -51,16 +39,13 @@ endif()
 include(CMakeDependentOption)
 include(GNUInstallDirs)
 
-if(NOT CMAKE_VERSION VERSION_LESS 3.11)
-  include(FetchContent)
-endif()
+include(FetchContent)
 
 list(APPEND force-libcxx "CMAKE_CXX_COMPILER_ID STREQUAL \"Clang\"")
 list(APPEND force-libcxx "CMAKE_SYSTEM_NAME STREQUAL \"Linux\"")
 list(APPEND force-libcxx "CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME")
 
 list(APPEND build-docs "CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME")
-list(APPEND build-docs "NOT CMAKE_VERSION VERSION_LESS 3.11")
 list(APPEND build-docs "Doxygen_FOUND")
 
 # Necessary to support paths with spaces, see #457
@@ -81,7 +66,7 @@ option(CLI11_WARNINGS_AS_ERRORS "Turn all warnings into errors (for CI)")
 option(CLI11_SINGLE_FILE "Generate a single header file")
 option(CLI11_PRECOMPILED "Generate a precompiled static library instead of a header-only" OFF)
 cmake_dependent_option(CLI11_SANITIZERS "Download the sanitizers CMake config" OFF
-                       "NOT CMAKE_VERSION VERSION_LESS 3.13" OFF)
+                       "NOT CMAKE_VERSION VERSION_LESS 3.15" OFF)
 
 cmake_dependent_option(CLI11_BUILD_DOCS "Build CLI11 documentation" ON "${build-docs}" OFF)
 
@@ -92,7 +77,7 @@ cmake_dependent_option(CLI11_BUILD_EXAMPLES "Build CLI11 examples" ON
                        "CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME;${examples_EXIST}" OFF)
 
 cmake_dependent_option(CLI11_BUILD_EXAMPLES_JSON "Build CLI11 json example" OFF
-                       "CLI11_BUILD_EXAMPLES;NOT CMAKE_VERSION VERSION_LESS 3.11" OFF)
+                       "CLI11_BUILD_EXAMPLES;NOT CMAKE_VERSION VERSION_LESS 3.15" OFF)
 
 cmake_dependent_option(CLI11_SINGLE_FILE_TESTS "Duplicate all the tests for a single file build"
                        OFF "BUILD_TESTING;CLI11_SINGLE_FILE" OFF)
@@ -125,17 +110,57 @@ if(NOT DEFINED CMAKE_CXX_STANDARD_REQUIRED)
   set(CMAKE_CXX_STANDARD_REQUIRED ON)
 endif()
 
+include(CLI11Warnings)
+
 # Allow IDE's to group targets into folders
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
   set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
+  set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "")
+  set(CMAKE_CXX_STANDARD_LIBRARIES "")
 endif()
 
-include(CLI11Warnings)
+# Sources
+
+set(CLI11_headerLoc "${PROJECT_SOURCE_DIR}/include/CLI")
+
+set(CLI11_headers
+    ${CLI11_headerLoc}/App.hpp
+    ${CLI11_headerLoc}/Config.hpp
+    ${CLI11_headerLoc}/ConfigFwd.hpp
+    ${CLI11_headerLoc}/Error.hpp
+    ${CLI11_headerLoc}/Formatter.hpp
+    ${CLI11_headerLoc}/FormatterFwd.hpp
+    ${CLI11_headerLoc}/Macros.hpp
+    ${CLI11_headerLoc}/Option.hpp
+    ${CLI11_headerLoc}/Split.hpp
+    ${CLI11_headerLoc}/StringTools.hpp
+    ${CLI11_headerLoc}/TypeTools.hpp
+    ${CLI11_headerLoc}/Validators.hpp
+    ${CLI11_headerLoc}/ExtraValidators.hpp
+    ${CLI11_headerLoc}/Version.hpp
+    ${CLI11_headerLoc}/Encoding.hpp
+    ${CLI11_headerLoc}/Argv.hpp)
+
+set(CLI11_impl_headers
+    ${CLI11_headerLoc}/impl/App_inl.hpp
+    ${CLI11_headerLoc}/impl/Config_inl.hpp
+    ${CLI11_headerLoc}/impl/Formatter_inl.hpp
+    ${CLI11_headerLoc}/impl/Option_inl.hpp
+    ${CLI11_headerLoc}/impl/Split_inl.hpp
+    ${CLI11_headerLoc}/impl/StringTools_inl.hpp
+    ${CLI11_headerLoc}/impl/Validators_inl.hpp
+    ${CLI11_headerLoc}/impl/ExtraValidators_inl.hpp
+    ${CLI11_headerLoc}/impl/Encoding_inl.hpp
+    ${CLI11_headerLoc}/impl/Argv_inl.hpp)
+
+set(CLI11_library_headers ${CLI11_headerLoc}/CLI.hpp ${CLI11_headerLoc}/Timer.hpp)
 
 # build the fuzzing example or fuzz entry point
 add_subdirectory(fuzz)
 
 add_subdirectory(src)
+add_subdirectory(single-include)
 
 # Allow tests to be run on CUDA
 if(CLI11_CUDA_TESTS)

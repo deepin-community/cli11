@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2024, University of Cincinnati, developed by Henry Schreiner
+// Copyright (c) 2017-2025, University of Cincinnati, developed by Henry Schreiner
 // under NSF AWARD 1414736 and by the respective contributors.
 // All rights reserved.
 //
@@ -6,14 +6,18 @@
 
 #pragma once
 
-// This include is only needed for IDEs to discover symbols
-#include <CLI/App.hpp>
+// IWYU pragma: private, include "CLI/CLI.hpp"
 
-#include <CLI/Argv.hpp>
-#include <CLI/Encoding.hpp>
+// This include is only needed for IDEs to discover symbols
+#include "../App.hpp"
+
+#include "../Argv.hpp"
+#include "../Encoding.hpp"
 
 // [CLI11:public_includes:set]
 #include <algorithm>
+#include <exception>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <utility>
@@ -54,6 +58,7 @@ CLI11_INLINE App::App(std::string app_description, std::string app_name, App *pa
         formatter_ = parent_->formatter_;
         config_formatter_ = parent_->config_formatter_;
         require_subcommand_max_ = parent_->require_subcommand_max_;
+        allow_prefix_matching_ = parent_->allow_prefix_matching_;
     }
 }
 
@@ -159,65 +164,115 @@ CLI11_INLINE Option *App::add_option(std::string option_name,
                                      std::string option_description,
                                      bool defaulted,
                                      std::function<std::string()> func) {
-    Option myopt{option_name, option_description, option_callback, this};
+    Option myopt{option_name, option_description, option_callback, this, allow_non_standard_options_};
 
-    if(std::find_if(std::begin(options_), std::end(options_), [&myopt](const Option_p &v) { return *v == myopt; }) ==
-       std::end(options_)) {
-        if(myopt.lnames_.empty() && myopt.snames_.empty()) {
-            // if the option is positional only there is additional potential for ambiguities in config files and needs
-            // to be checked
-            std::string test_name = "--" + myopt.get_single_name();
-            if(test_name.size() == 3) {
-                test_name.erase(0, 1);
-            }
+    // do a quick search in current subcommand for options
+    auto res =
+        std::find_if(std::begin(options_), std::end(options_), [&myopt](const Option_p &v) { return *v == myopt; });
+    if(res != options_.end()) {
+        const auto &matchname = (*res)->matching_name(myopt);
+        throw(OptionAlreadyAdded("added option matched existing option name: " + matchname));
+    }
+    /** get a top level parent*/
+    const App *top_level_parent = this;
+    while(top_level_parent->name_.empty() && top_level_parent->parent_ != nullptr) {
+        top_level_parent = top_level_parent->parent_;
+    }
 
-            auto *op = get_option_no_throw(test_name);
-            if(op != nullptr) {
-                throw(OptionAlreadyAdded("added option positional name matches existing option: " + test_name));
+    if(myopt.lnames_.empty() && myopt.snames_.empty()) {
+        // if the option is positional only there is additional potential for ambiguities in config files and needs
+        // to be checked
+        std::string test_name = "--" + myopt.get_single_name();
+        if(test_name.size() == 3) {
+            test_name.erase(0, 1);
+        }
+        // if we are in option group
+        const auto *op = top_level_parent->get_option_no_throw(test_name);
+        if(op != nullptr && op->get_configurable()) {
+            throw(OptionAlreadyAdded("added option positional name matches existing option: " + test_name));
+        }
+        // need to check if there is another positional with the same name that also doesn't have any long or
+        // short names
+        op = top_level_parent->get_option_no_throw(myopt.get_single_name());
+        if(op != nullptr && op->lnames_.empty() && op->snames_.empty()) {
+            throw(OptionAlreadyAdded("unable to disambiguate with existing option: " + test_name));
+        }
+    } else if(top_level_parent != this) {
+        for(auto &ln : myopt.lnames_) {
+            const auto *op = top_level_parent->get_option_no_throw(ln);
+            if(op != nullptr && op->get_configurable()) {
+                throw(OptionAlreadyAdded("added option matches existing positional option: " + ln));
             }
-        } else if(parent_ != nullptr) {
-            for(auto &ln : myopt.lnames_) {
-                auto *op = parent_->get_option_no_throw(ln);
-                if(op != nullptr) {
-                    throw(OptionAlreadyAdded("added option matches existing positional option: " + ln));
-                }
+            op = top_level_parent->get_option_no_throw("--" + ln);
+            if(op != nullptr && op->get_configurable()) {
+                throw(OptionAlreadyAdded("added option matches existing option: --" + ln));
             }
-            for(auto &sn : myopt.snames_) {
-                auto *op = parent_->get_option_no_throw(sn);
-                if(op != nullptr) {
-                    throw(OptionAlreadyAdded("added option matches existing positional option: " + sn));
+            if(ln.size() == 1 || top_level_parent->get_allow_non_standard_option_names()) {
+                op = top_level_parent->get_option_no_throw("-" + ln);
+                if(op != nullptr && op->get_configurable()) {
+                    throw(OptionAlreadyAdded("added option matches existing option: -" + ln));
                 }
             }
         }
-        options_.emplace_back();
-        Option_p &option = options_.back();
-        option.reset(new Option(option_name, option_description, option_callback, this));
-
-        // Set the default string capture function
-        option->default_function(func);
-
-        // For compatibility with CLI11 1.7 and before, capture the default string here
-        if(defaulted)
-            option->capture_default_str();
-
-        // Transfer defaults to the new option
-        option_defaults_.copy_to(option.get());
-
-        // Don't bother to capture if we already did
-        if(!defaulted && option->get_always_capture_default())
-            option->capture_default_str();
-
-        return option.get();
-    }
-    // we know something matches now find what it is so we can produce more error information
-    for(auto &opt : options_) {
-        const auto &matchname = opt->matching_name(myopt);
-        if(!matchname.empty()) {
-            throw(OptionAlreadyAdded("added option matched existing option name: " + matchname));
+        for(auto &sn : myopt.snames_) {
+            const auto *op = top_level_parent->get_option_no_throw(sn);
+            if(op != nullptr && op->get_configurable()) {
+                throw(OptionAlreadyAdded("added option matches existing positional option: " + sn));
+            }
+            op = top_level_parent->get_option_no_throw("-" + sn);
+            if(op != nullptr && op->get_configurable()) {
+                throw(OptionAlreadyAdded("added option matches existing option: -" + sn));
+            }
+            op = top_level_parent->get_option_no_throw("--" + sn);
+            if(op != nullptr && op->get_configurable()) {
+                throw(OptionAlreadyAdded("added option matches existing option: --" + sn));
+            }
         }
     }
-    // this line should not be reached the above loop should trigger the throw
-    throw(OptionAlreadyAdded("added option matched existing option name"));  // LCOV_EXCL_LINE
+    if(allow_non_standard_options_ && !myopt.snames_.empty()) {
+
+        for(auto &sname : myopt.snames_) {
+            if(sname.length() > 1) {
+                std::string test_name;
+                test_name.push_back('-');
+                test_name.push_back(sname.front());
+                const auto *op = top_level_parent->get_option_no_throw(test_name);
+                if(op != nullptr) {
+                    throw(OptionAlreadyAdded("added option interferes with existing short option: " + sname));
+                }
+            }
+        }
+        for(auto &opt : top_level_parent->get_options()) {
+            for(const auto &osn : opt->snames_) {
+                if(osn.size() > 1) {
+                    std::string test_name;
+                    test_name.push_back(osn.front());
+                    if(myopt.check_sname(test_name)) {
+                        throw(OptionAlreadyAdded("added option interferes with existing non standard option: " + osn));
+                    }
+                }
+            }
+        }
+    }
+    options_.emplace_back();
+    Option_p &option = options_.back();
+    option.reset(new Option(option_name, option_description, option_callback, this, allow_non_standard_options_));
+
+    // Set the default string capture function
+    option->default_function(func);
+
+    // For compatibility with CLI11 1.7 and before, capture the default string here
+    if(defaulted)
+        option->capture_default_str();
+
+    // Transfer defaults to the new option
+    option_defaults_.copy_to(option.get());
+
+    // Don't bother to capture if we already did
+    if(!defaulted && option->get_always_capture_default())
+        option->capture_default_str();
+
+    return option.get();
 }
 
 CLI11_INLINE Option *App::set_help_flag(std::string flag_name, const std::string &help_description) {
@@ -230,7 +285,7 @@ CLI11_INLINE Option *App::set_help_flag(std::string flag_name, const std::string
     // Empty name will simply remove the help flag
     if(!flag_name.empty()) {
         help_ptr_ = add_flag(flag_name, help_description);
-        help_ptr_->configurable(false);
+        help_ptr_->configurable(false)->callback_priority(CallbackPriority::First);
     }
 
     return help_ptr_;
@@ -246,7 +301,7 @@ CLI11_INLINE Option *App::set_help_all_flag(std::string help_name, const std::st
     // Empty name will simply remove the help all flag
     if(!help_name.empty()) {
         help_all_ptr_ = add_flag(help_name, help_description);
-        help_all_ptr_->configurable(false);
+        help_all_ptr_->configurable(false)->callback_priority(CallbackPriority::First);
     }
 
     return help_all_ptr_;
@@ -264,7 +319,7 @@ App::set_version_flag(std::string flag_name, const std::string &versionString, c
     if(!flag_name.empty()) {
         version_ptr_ = add_flag_callback(
             flag_name, [versionString]() { throw(CLI::CallForVersion(versionString, 0)); }, version_help);
-        version_ptr_->configurable(false);
+        version_ptr_->configurable(false)->callback_priority(CallbackPriority::First);
     }
 
     return version_ptr_;
@@ -279,9 +334,9 @@ App::set_version_flag(std::string flag_name, std::function<std::string()> vfunc,
 
     // Empty name will simply remove the version flag
     if(!flag_name.empty()) {
-        version_ptr_ = add_flag_callback(
-            flag_name, [vfunc]() { throw(CLI::CallForVersion(vfunc(), 0)); }, version_help);
-        version_ptr_->configurable(false);
+        version_ptr_ =
+            add_flag_callback(flag_name, [vfunc]() { throw(CLI::CallForVersion(vfunc(), 0)); }, version_help);
+        version_ptr_->configurable(false)->callback_priority(CallbackPriority::First);
     }
 
     return version_ptr_;
@@ -384,6 +439,8 @@ CLI11_INLINE bool App::remove_option(Option *opt) {
         help_ptr_ = nullptr;
     if(help_all_ptr_ == opt)
         help_all_ptr_ = nullptr;
+    if(config_ptr_ == opt)
+        config_ptr_ = nullptr;
 
     auto iterator =
         std::find_if(std::begin(options_), std::end(options_), [opt](const Option_p &v) { return v.get() == opt; });
@@ -457,6 +514,10 @@ CLI11_NODISCARD CLI11_INLINE App *App::get_subcommand(std::string subcom) const 
     return subc;
 }
 
+CLI11_NODISCARD CLI11_INLINE App *App::get_subcommand_no_throw(std::string subcom) const noexcept {
+    return _find_subcommand(subcom, false, false);
+}
+
 CLI11_NODISCARD CLI11_INLINE App *App::get_subcommand(int index) const {
     if(index >= 0) {
         auto uindex = static_cast<unsigned>(index);
@@ -521,6 +582,7 @@ CLI11_INLINE void App::clear() {
 
     missing_.clear();
     parsed_subcommands_.clear();
+    parse_order_.clear();
     for(const Option_p &opt : options_) {
         opt->clear();
     }
@@ -778,7 +840,14 @@ CLI11_INLINE std::vector<const Option *> App::get_options(const std::function<bo
                                      [&filter](const Option *opt) { return !filter(opt); }),
                       std::end(options));
     }
-
+    for(const auto &subcp : subcommands_) {
+        // also check down into nameless subcommands
+        const App *subc = subcp.get();
+        if(subc->get_name().empty() && !subc->get_group().empty() && subc->get_group().front() == '+') {
+            std::vector<const Option *> subcopts = subc->get_options(filter);
+            options.insert(options.end(), subcopts.begin(), subcopts.end());
+        }
+    }
     return options;
 }
 
@@ -792,11 +861,17 @@ CLI11_INLINE std::vector<Option *> App::get_options(const std::function<bool(Opt
             std::remove_if(std::begin(options), std::end(options), [&filter](Option *opt) { return !filter(opt); }),
             std::end(options));
     }
-
+    for(auto &subc : subcommands_) {
+        // also check down into nameless subcommands and specific groups
+        if(subc->get_name().empty() || (!subc->get_group().empty() && subc->get_group().front() == '+')) {
+            auto subcopts = subc->get_options(filter);
+            options.insert(options.end(), subcopts.begin(), subcopts.end());
+        }
+    }
     return options;
 }
 
-CLI11_INLINE Option *App::get_option_no_throw(std::string option_name) noexcept {
+CLI11_NODISCARD CLI11_INLINE Option *App::get_option_no_throw(std::string option_name) noexcept {
     for(Option_p &opt : options_) {
         if(opt->check_name(option_name)) {
             return opt.get();
@@ -849,6 +924,11 @@ CLI11_NODISCARD CLI11_INLINE std::string App::get_display_name(bool with_aliases
 }
 
 CLI11_NODISCARD CLI11_INLINE bool App::check_name(std::string name_to_check) const {
+    auto result = check_name_detail(std::move(name_to_check));
+    return (result != NameMatch::none);
+}
+
+CLI11_NODISCARD CLI11_INLINE App::NameMatch App::check_name_detail(std::string name_to_check) const {
     std::string local_name = name_;
     if(ignore_underscore_) {
         local_name = detail::remove_underscore(name_);
@@ -860,7 +940,12 @@ CLI11_NODISCARD CLI11_INLINE bool App::check_name(std::string name_to_check) con
     }
 
     if(local_name == name_to_check) {
-        return true;
+        return App::NameMatch::exact;
+    }
+    if(allow_prefix_matching_ && name_to_check.size() < local_name.size()) {
+        if(local_name.compare(0, name_to_check.size(), name_to_check) == 0) {
+            return App::NameMatch::prefix;
+        }
     }
     for(std::string les : aliases_) {  // NOLINT(performance-for-range-copy)
         if(ignore_underscore_) {
@@ -870,10 +955,15 @@ CLI11_NODISCARD CLI11_INLINE bool App::check_name(std::string name_to_check) con
             les = detail::to_lower(les);
         }
         if(les == name_to_check) {
-            return true;
+            return App::NameMatch::exact;
+        }
+        if(allow_prefix_matching_ && name_to_check.size() < les.size()) {
+            if(les.compare(0, name_to_check.size(), name_to_check) == 0) {
+                return App::NameMatch::prefix;
+            }
         }
     }
-    return false;
+    return App::NameMatch::none;
 }
 
 CLI11_NODISCARD CLI11_INLINE std::vector<std::string> App::get_groups() const {
@@ -1019,7 +1109,8 @@ CLI11_INLINE void App::run_callback(bool final_mode, bool suppress_final_callbac
 
 CLI11_NODISCARD CLI11_INLINE bool App::_valid_subcommand(const std::string &current, bool ignore_used) const {
     // Don't match if max has been reached - but still check parents
-    if(require_subcommand_max_ != 0 && parsed_subcommands_.size() >= require_subcommand_max_) {
+    if(require_subcommand_max_ != 0 && parsed_subcommands_.size() >= require_subcommand_max_ &&
+       subcommand_fallthrough_) {
         return parent_ != nullptr && parent_->_valid_subcommand(current, ignore_used);
     }
     auto *com = _find_subcommand(current, true, ignore_used);
@@ -1027,7 +1118,10 @@ CLI11_NODISCARD CLI11_INLINE bool App::_valid_subcommand(const std::string &curr
         return true;
     }
     // Check parent if exists, else return false
-    return parent_ != nullptr && parent_->_valid_subcommand(current, ignore_used);
+    if(subcommand_fallthrough_) {
+        return parent_ != nullptr && parent_->_valid_subcommand(current, ignore_used);
+    }
+    return false;
 }
 
 CLI11_NODISCARD CLI11_INLINE detail::Classifier App::_recognize(const std::string &current,
@@ -1041,7 +1135,9 @@ CLI11_NODISCARD CLI11_INLINE detail::Classifier App::_recognize(const std::strin
     if(detail::split_long(current, dummy1, dummy2))
         return detail::Classifier::LONG;
     if(detail::split_short(current, dummy1, dummy2)) {
-        if(dummy1[0] >= '0' && dummy1[0] <= '9') {
+        if((dummy1[0] >= '0' && dummy1[0] <= '9') ||
+           (dummy1[0] == '.' && !dummy2.empty() && (dummy2[0] >= '0' && dummy2[0] <= '9'))) {
+            // it looks like a number but check if it could be an option
             if(get_option_no_throw(std::string{'-', dummy1[0]}) == nullptr) {
                 return detail::Classifier::NONE;
             }
@@ -1136,52 +1232,55 @@ CLI11_INLINE void App::_process_env() {
     }
 
     for(App_p &sub : subcommands_) {
-        if(sub->get_name().empty() || !sub->parse_complete_callback_) {
-            if(sub->count_all() > 0) {
-                // only process environment variables if the callback has actually been triggered already
-                sub->_process_env();
-            }
+        if(sub->get_name().empty() || (sub->count_all() > 0 && !sub->parse_complete_callback_)) {
+            // only process environment variables if the callback has actually been triggered already
+            sub->_process_env();
         }
     }
 }
 
-CLI11_INLINE void App::_process_callbacks() {
+CLI11_INLINE void App::_process_callbacks(CallbackPriority priority) {
 
     for(App_p &sub : subcommands_) {
         // process the priority option_groups first
         if(sub->get_name().empty() && sub->parse_complete_callback_) {
             if(sub->count_all() > 0) {
-                sub->_process_callbacks();
-                sub->run_callback();
+                sub->_process_callbacks(priority);
+                if(priority == CallbackPriority::Normal) {
+                    // only run the subcommand callback at normal priority
+                    sub->run_callback();
+                }
             }
         }
     }
 
     for(const Option_p &opt : options_) {
-        if((*opt) && !opt->get_callback_run()) {
-            opt->run_callback();
+        if(opt->get_callback_priority() == priority) {
+            if((*opt) && !opt->get_callback_run()) {
+                opt->run_callback();
+            }
         }
     }
     for(App_p &sub : subcommands_) {
         if(!sub->parse_complete_callback_) {
-            sub->_process_callbacks();
+            sub->_process_callbacks(priority);
         }
     }
 }
 
-CLI11_INLINE void App::_process_help_flags(bool trigger_help, bool trigger_all_help) const {
+CLI11_INLINE void App::_process_help_flags(CallbackPriority priority, bool trigger_help, bool trigger_all_help) const {
     const Option *help_ptr = get_help_ptr();
     const Option *help_all_ptr = get_help_all_ptr();
 
-    if(help_ptr != nullptr && help_ptr->count() > 0)
+    if(help_ptr != nullptr && help_ptr->count() > 0 && help_ptr->get_callback_priority() == priority)
         trigger_help = true;
-    if(help_all_ptr != nullptr && help_all_ptr->count() > 0)
+    if(help_all_ptr != nullptr && help_all_ptr->count() > 0 && help_all_ptr->get_callback_priority() == priority)
         trigger_all_help = true;
 
     // If there were parsed subcommands, call those. First subcommand wins if there are multiple ones.
     if(!parsed_subcommands_.empty()) {
         for(const App *sub : parsed_subcommands_)
-            sub->_process_help_flags(trigger_help, trigger_all_help);
+            sub->_process_help_flags(priority, trigger_help, trigger_all_help);
 
         // Only the final subcommand should call for help. All help wins over help.
     } else if(trigger_all_help) {
@@ -1320,6 +1419,13 @@ CLI11_INLINE void App::_process_requirements() {
 }
 
 CLI11_INLINE void App::_process() {
+    // help takes precedence over other potential errors and config and environment shouldn't be processed if help
+    // throws
+    _process_callbacks(CallbackPriority::FirstPreHelp);
+    _process_help_flags(CallbackPriority::First);
+    _process_callbacks(CallbackPriority::First);
+
+    std::exception_ptr config_exception;
     try {
         // the config file might generate a FileError but that should not be processed until later in the process
         // to allow for help, version and other errors to generate first.
@@ -1328,17 +1434,27 @@ CLI11_INLINE void App::_process() {
         // process env shouldn't throw but no reason to process it if config generated an error
         _process_env();
     } catch(const CLI::FileError &) {
-        // callbacks and help_flags can generate exceptions which should take priority
-        // over the config file error if one exists.
-        _process_callbacks();
-        _process_help_flags();
-        throw;
+        config_exception = std::current_exception();
     }
-
-    _process_callbacks();
-    _process_help_flags();
+    // callbacks and requirements processing can generate exceptions which should take priority
+    // over the config file error if one exists.
+    _process_callbacks(CallbackPriority::PreRequirementsCheckPreHelp);
+    _process_help_flags(CallbackPriority::PreRequirementsCheck);
+    _process_callbacks(CallbackPriority::PreRequirementsCheck);
 
     _process_requirements();
+
+    _process_callbacks(CallbackPriority::NormalPreHelp);
+    _process_help_flags(CallbackPriority::Normal);
+    _process_callbacks(CallbackPriority::Normal);
+
+    if(config_exception) {
+        std::rethrow_exception(config_exception);
+    }
+
+    _process_callbacks(CallbackPriority::LastPreHelp);
+    _process_help_flags(CallbackPriority::Last);
+    _process_callbacks(CallbackPriority::Last);
 }
 
 CLI11_INLINE void App::_process_extras() {
@@ -1398,10 +1514,20 @@ CLI11_INLINE void App::_parse(std::vector<std::string> &args) {
         // Convert missing (pairs) to extras (string only) ready for processing in another app
         args = remaining_for_passthrough(false);
     } else if(parse_complete_callback_) {
+        _process_callbacks(CallbackPriority::FirstPreHelp);
+        _process_help_flags(CallbackPriority::First);
+        _process_callbacks(CallbackPriority::First);
         _process_env();
-        _process_callbacks();
-        _process_help_flags();
+        _process_callbacks(CallbackPriority::PreRequirementsCheckPreHelp);
+        _process_help_flags(CallbackPriority::PreRequirementsCheck);
+        _process_callbacks(CallbackPriority::PreRequirementsCheck);
         _process_requirements();
+        _process_callbacks(CallbackPriority::NormalPreHelp);
+        _process_help_flags(CallbackPriority::Normal);
+        _process_callbacks(CallbackPriority::Normal);
+        _process_callbacks(CallbackPriority::LastPreHelp);
+        _process_help_flags(CallbackPriority::Last);
+        _process_callbacks(CallbackPriority::Last);
         run_callback(false, true);
     }
 }
@@ -1440,15 +1566,73 @@ CLI11_INLINE void App::_parse_config(const std::vector<ConfigItem> &args) {
     }
 }
 
+CLI11_INLINE bool
+App::_add_flag_like_result(Option *op, const ConfigItem &item, const std::vector<std::string> &inputs) {
+    if(item.inputs.size() <= 1) {
+        // Flag parsing
+        auto res = config_formatter_->to_flag(item);
+        bool converted{false};
+        if(op->get_disable_flag_override()) {
+            auto val = detail::to_flag_value(res);
+            if(val == 1) {
+                res = op->get_flag_value(item.name, "{}");
+                converted = true;
+            }
+        }
+
+        if(!converted) {
+            errno = 0;
+            if(res != "{}" || op->get_expected_max() <= 1) {
+                res = op->get_flag_value(item.name, res);
+            }
+        }
+
+        op->add_result(res);
+        return true;
+    }
+    if(static_cast<int>(inputs.size()) > op->get_items_expected_max() &&
+       op->get_multi_option_policy() != MultiOptionPolicy::TakeAll &&
+       op->get_multi_option_policy() != MultiOptionPolicy::Join) {
+        if(op->get_items_expected_max() > 1) {
+            throw ArgumentMismatch::AtMost(item.fullname(), op->get_items_expected_max(), inputs.size());
+        }
+
+        if(!op->get_disable_flag_override()) {
+            throw ConversionError::TooManyInputsFlag(item.fullname());
+        }
+        // if the disable flag override is set then we must have the flag values match a known flag value
+        // this is true regardless of the output value, so an array input is possible and must be accounted for
+        for(const auto &res : inputs) {
+            bool valid_value{false};
+            if(op->default_flag_values_.empty()) {
+                if(res == "true" || res == "false" || res == "1" || res == "0") {
+                    valid_value = true;
+                }
+            } else {
+                for(const auto &valid_res : op->default_flag_values_) {
+                    if(valid_res.second == res) {
+                        valid_value = true;
+                        break;
+                    }
+                }
+            }
+
+            if(valid_value) {
+                op->add_result(res);
+            } else {
+                throw InvalidError("invalid flag argument given");
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
 CLI11_INLINE bool App::_parse_single_config(const ConfigItem &item, std::size_t level) {
 
     if(level < item.parents.size()) {
-        try {
-            auto *subcom = get_subcommand(item.parents.at(level));
-            return subcom->_parse_single_config(item, level + 1);
-        } catch(const OptionNotFound &) {
-            return false;
-        }
+        auto *subcom = get_subcommand_no_throw(item.parents.at(level));
+        return (subcom != nullptr) ? subcom->_parse_single_config(item, level + 1) : false;
     }
     // check for section open
     if(item.name == "++") {
@@ -1464,8 +1648,15 @@ CLI11_INLINE bool App::_parse_single_config(const ConfigItem &item, std::size_t 
     // check for section close
     if(item.name == "--") {
         if(configurable_ && parse_complete_callback_) {
-            _process_callbacks();
+            _process_callbacks(CallbackPriority::FirstPreHelp);
+            _process_callbacks(CallbackPriority::First);
+            _process_callbacks(CallbackPriority::PreRequirementsCheckPreHelp);
+            _process_callbacks(CallbackPriority::PreRequirementsCheck);
             _process_requirements();
+            _process_callbacks(CallbackPriority::NormalPreHelp);
+            _process_callbacks(CallbackPriority::Normal);
+            _process_callbacks(CallbackPriority::LastPreHelp);
+            _process_callbacks(CallbackPriority::Last);
             run_callback();
         }
         return true;
@@ -1478,15 +1669,32 @@ CLI11_INLINE bool App::_parse_single_config(const ConfigItem &item, std::size_t 
         if(op == nullptr) {
             op = get_option_no_throw(item.name);
         }
+    } else if(!op->get_configurable()) {
+        if(item.name.size() == 1) {
+            auto *testop = get_option_no_throw("-" + item.name);
+            if(testop != nullptr && testop->get_configurable()) {
+                op = testop;
+            }
+        }
     }
-
+    if(op == nullptr || !op->get_configurable()) {
+        std::string iname = item.name;
+        auto options = get_options([iname](const CLI::Option *opt) {
+            return (opt->get_configurable() &&
+                    (opt->check_name(iname) || opt->check_lname(iname) || opt->check_sname(iname)));
+        });
+        if(!options.empty()) {
+            op = options[0];
+        }
+    }
     if(op == nullptr) {
         // If the option was not present
-        if(get_allow_config_extras() == config_extras_mode::capture)
+        if(get_allow_config_extras() == config_extras_mode::capture) {
             // Should we worry about classifying the extras properly?
             missing_.emplace_back(detail::Classifier::NONE, item.fullname());
-        for(const auto &input : item.inputs) {
-            missing_.emplace_back(detail::Classifier::NONE, input);
+            for(const auto &input : item.inputs) {
+                missing_.emplace_back(detail::Classifier::NONE, input);
+            }
         }
         return false;
     }
@@ -1497,66 +1705,23 @@ CLI11_INLINE bool App::_parse_single_config(const ConfigItem &item, std::size_t 
         }
         throw ConfigError::NotConfigurable(item.fullname());
     }
-
     if(op->empty()) {
-
-        if(op->get_expected_min() == 0) {
-            if(item.inputs.size() <= 1) {
-                // Flag parsing
-                auto res = config_formatter_->to_flag(item);
-                bool converted{false};
-                if(op->get_disable_flag_override()) {
-                    auto val = detail::to_flag_value(res);
-                    if(val == 1) {
-                        res = op->get_flag_value(item.name, "{}");
-                        converted = true;
-                    }
-                }
-
-                if(!converted) {
-                    errno = 0;
-                    res = op->get_flag_value(item.name, res);
-                }
-
-                op->add_result(res);
-                return true;
+        std::vector<std::string> buffer;  // a buffer to use for copying and modifying inputs in a few cases
+        bool useBuffer{false};
+        if(item.multiline) {
+            if(!op->get_inject_separator()) {
+                buffer = item.inputs;
+                buffer.erase(std::remove(buffer.begin(), buffer.end(), "%%"), buffer.end());
+                useBuffer = true;
             }
-            if(static_cast<int>(item.inputs.size()) > op->get_items_expected_max() &&
-               op->get_multi_option_policy() != MultiOptionPolicy::TakeAll) {
-                if(op->get_items_expected_max() > 1) {
-                    throw ArgumentMismatch::AtMost(item.fullname(), op->get_items_expected_max(), item.inputs.size());
-                }
-
-                if(!op->get_disable_flag_override()) {
-                    throw ConversionError::TooManyInputsFlag(item.fullname());
-                }
-                // if the disable flag override is set then we must have the flag values match a known flag value
-                // this is true regardless of the output value, so an array input is possible and must be accounted for
-                for(const auto &res : item.inputs) {
-                    bool valid_value{false};
-                    if(op->default_flag_values_.empty()) {
-                        if(res == "true" || res == "false" || res == "1" || res == "0") {
-                            valid_value = true;
-                        }
-                    } else {
-                        for(const auto &valid_res : op->default_flag_values_) {
-                            if(valid_res.second == res) {
-                                valid_value = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if(valid_value) {
-                        op->add_result(res);
-                    } else {
-                        throw InvalidError("invalid flag argument given");
-                    }
-                }
+        }
+        const std::vector<std::string> &inputs = (useBuffer) ? buffer : item.inputs;
+        if(op->get_expected_min() == 0) {
+            if(_add_flag_like_result(op, item, inputs)) {
                 return true;
             }
         }
-        op->add_result(item.inputs);
+        op->add_result(inputs);
         op->run_callback();
     }
 
@@ -1658,7 +1823,7 @@ CLI11_INLINE bool App::_parse_positional(std::vector<std::string> &args, bool ha
         for(const Option_p &opt : options_) {
             // Eat options, one by one, until done
             if(opt->get_positional() &&
-               (static_cast<int>(opt->count()) < opt->get_items_expected_min() || opt->get_allow_extra_args())) {
+               (static_cast<int>(opt->count()) < opt->get_items_expected_max() || opt->get_allow_extra_args())) {
                 if(validate_positionals_) {
                     std::string pos = positional;
                     pos = opt->_validate(pos, 0);
@@ -1678,12 +1843,29 @@ CLI11_INLINE bool App::_parse_positional(std::vector<std::string> &args, bool ha
                 posOpt->add_result(std::string{});
             }
         }
+        results_t prev;
         if(posOpt->get_trigger_on_parse() && posOpt->current_option_state_ == Option::option_state::callback_run) {
+            prev = posOpt->results();
             posOpt->clear();
         }
-        posOpt->add_result(positional);
+        if(posOpt->get_expected_min() == 0) {
+            ConfigItem item;
+            item.name = posOpt->pname_;
+            item.inputs.push_back(positional);
+            // input is singular guaranteed to return true in that case
+            _add_flag_like_result(posOpt, item, item.inputs);
+        } else {
+            posOpt->add_result(positional);
+        }
+
         if(posOpt->get_trigger_on_parse()) {
-            posOpt->run_callback();
+            if(!posOpt->empty()) {
+                posOpt->run_callback();
+            } else {
+                if(!prev.empty()) {
+                    posOpt->add_result(prev);
+                }
+            }
         }
 
         args.pop_back();
@@ -1701,9 +1883,9 @@ CLI11_INLINE bool App::_parse_positional(std::vector<std::string> &args, bool ha
         }
     }
     // let the parent deal with it if possible
-    if(parent_ != nullptr && fallthrough_)
+    if(parent_ != nullptr && fallthrough_) {
         return _get_fallthrough_parent()->_parse_positional(args, static_cast<bool>(parse_complete_callback_));
-
+    }
     /// Try to find a local subcommand that is repeated
     auto *com = _find_subcommand(args.back(), true, false);
     if(com != nullptr && (require_subcommand_max_ == 0 || require_subcommand_max_ > parsed_subcommands_.size())) {
@@ -1714,17 +1896,21 @@ CLI11_INLINE bool App::_parse_positional(std::vector<std::string> &args, bool ha
         com->_parse(args);
         return true;
     }
-    /// now try one last gasp at subcommands that have been executed before, go to root app and try to find a
-    /// subcommand in a broader way, if one exists let the parent deal with it
-    auto *parent_app = (parent_ != nullptr) ? _get_fallthrough_parent() : this;
-    com = parent_app->_find_subcommand(args.back(), true, false);
-    if(com != nullptr && (com->parent_->require_subcommand_max_ == 0 ||
-                          com->parent_->require_subcommand_max_ > com->parent_->parsed_subcommands_.size())) {
-        return false;
+    if(subcommand_fallthrough_) {
+        /// now try one last gasp at subcommands that have been executed before, go to root app and try to find a
+        /// subcommand in a broader way, if one exists let the parent deal with it
+        auto *parent_app = (parent_ != nullptr) ? _get_fallthrough_parent() : this;
+        com = parent_app->_find_subcommand(args.back(), true, false);
+        if(com != nullptr && (com->parent_->require_subcommand_max_ == 0 ||
+                              com->parent_->require_subcommand_max_ > com->parent_->parsed_subcommands_.size())) {
+            return false;
+        }
     }
-
     if(positionals_at_end_) {
-        throw CLI::ExtrasError(name_, args);
+        std::vector<std::string> rargs;
+        rargs.resize(args.size());
+        std::reverse_copy(args.begin(), args.end(), rargs.begin());
+        throw CLI::ExtrasError(name_, rargs);
     }
     /// If this is an option group don't deal with it
     if(parent_ != nullptr && name_.empty()) {
@@ -1745,21 +1931,39 @@ CLI11_INLINE bool App::_parse_positional(std::vector<std::string> &args, bool ha
 
 CLI11_NODISCARD CLI11_INLINE App *
 App::_find_subcommand(const std::string &subc_name, bool ignore_disabled, bool ignore_used) const noexcept {
+    App *bcom{nullptr};
     for(const App_p &com : subcommands_) {
         if(com->disabled_ && ignore_disabled)
             continue;
         if(com->get_name().empty()) {
             auto *subc = com->_find_subcommand(subc_name, ignore_disabled, ignore_used);
             if(subc != nullptr) {
-                return subc;
+                if(bcom != nullptr) {
+                    return nullptr;
+                }
+                bcom = subc;
+                if(!allow_prefix_matching_) {
+                    return bcom;
+                }
             }
         }
-        if(com->check_name(subc_name)) {
-            if((!*com) || !ignore_used)
-                return com.get();
+        auto res = com->check_name_detail(subc_name);
+        if(res != NameMatch::none) {
+            if((!*com) || !ignore_used) {
+                if(res == NameMatch::exact) {
+                    return com.get();
+                }
+                if(bcom != nullptr) {
+                    return nullptr;
+                }
+                bcom = com.get();
+                if(!allow_prefix_matching_) {
+                    return bcom;
+                }
+            }
         }
     }
-    return nullptr;
+    return bcom;
 }
 
 CLI11_INLINE bool App::_parse_subcommand(std::vector<std::string> &args) {
@@ -1841,7 +2045,8 @@ App::_parse_arg(std::vector<std::string> &args, detail::Classifier current_type,
     });
 
     // Option not found
-    if(op_ptr == std::end(options_)) {
+    while(op_ptr == std::end(options_)) {
+        // using while so we can break
         for(auto &subc : subcommands_) {
             if(subc->name_.empty() && !subc->disabled_) {
                 if(subc->_parse_arg(args, current_type, local_processing_only)) {
@@ -1852,6 +2057,20 @@ App::_parse_arg(std::vector<std::string> &args, detail::Classifier current_type,
                 }
             }
         }
+        if(allow_non_standard_options_ && current_type == detail::Classifier::SHORT && current.size() > 2) {
+            std::string narg_name;
+            std::string nvalue;
+            detail::split_long(std::string{'-'} + current, narg_name, nvalue);
+            op_ptr = std::find_if(std::begin(options_), std::end(options_), [narg_name](const Option_p &opt) {
+                return opt->check_sname(narg_name);
+            });
+            if(op_ptr != std::end(options_)) {
+                arg_name = narg_name;
+                value = nvalue;
+                rest.clear();
+                break;
+            }
+        }
 
         // don't capture missing if this is a nameless subcommand and nameless subcommands can't fallthrough
         if(parent_ != nullptr && name_.empty()) {
@@ -1860,11 +2079,11 @@ App::_parse_arg(std::vector<std::string> &args, detail::Classifier current_type,
 
         // now check for '.' notation of subcommands
         auto dotloc = arg_name.find_first_of('.', 1);
-        if(dotloc != std::string::npos) {
+        if(dotloc != std::string::npos && dotloc < arg_name.size() - 1) {
             // using dot notation is equivalent to single argument subcommand
             auto *sub = _find_subcommand(arg_name.substr(0, dotloc), true, false);
             if(sub != nullptr) {
-                auto v = args.back();
+                std::string v = args.back();
                 args.pop_back();
                 arg_name = arg_name.substr(dotloc + 1);
                 if(arg_name.size() > 1) {
@@ -1881,7 +2100,13 @@ App::_parse_arg(std::vector<std::string> &args, detail::Classifier current_type,
                     args.push_back(nval);
                     current_type = detail::Classifier::SHORT;
                 }
-                auto val = sub->_parse_arg(args, current_type, true);
+                std::string dummy1, dummy2;
+                bool val = false;
+                if((current_type == detail::Classifier::SHORT && detail::valid_first_char(args.back()[1])) ||
+                   detail::split_long(args.back(), dummy1, dummy2)) {
+                    val = sub->_parse_arg(args, current_type, true);
+                }
+
                 if(val) {
                     if(!sub->silent_) {
                         parsed_subcommands_.push_back(sub);
@@ -1891,10 +2116,20 @@ App::_parse_arg(std::vector<std::string> &args, detail::Classifier current_type,
                     _trigger_pre_parse(args.size());
                     // run the parse complete callback since the subcommand processing is now complete
                     if(sub->parse_complete_callback_) {
+                        sub->_process_callbacks(CallbackPriority::FirstPreHelp);
+                        sub->_process_help_flags(CallbackPriority::First);
+                        sub->_process_callbacks(CallbackPriority::First);
                         sub->_process_env();
-                        sub->_process_callbacks();
-                        sub->_process_help_flags();
+                        sub->_process_callbacks(CallbackPriority::PreRequirementsCheckPreHelp);
+                        sub->_process_help_flags(CallbackPriority::PreRequirementsCheck);
+                        sub->_process_callbacks(CallbackPriority::PreRequirementsCheck);
                         sub->_process_requirements();
+                        sub->_process_callbacks(CallbackPriority::NormalPreHelp);
+                        sub->_process_help_flags(CallbackPriority::Normal);
+                        sub->_process_callbacks(CallbackPriority::Normal);
+                        sub->_process_callbacks(CallbackPriority::LastPreHelp);
+                        sub->_process_help_flags(CallbackPriority::Last);
+                        sub->_process_callbacks(CallbackPriority::Last);
                         sub->run_callback(false, true);
                     }
                     return true;
@@ -2223,11 +2458,14 @@ CLI11_INLINE void retire_option(App *app, Option *opt) {
         ->expected(option_copy->get_expected_min(), option_copy->get_expected_max())
         ->allow_extra_args(option_copy->get_allow_extra_args());
 
+    // LCOV_EXCL_START
+    // something odd with coverage on new compilers
     Validator retired_warning{[opt2](std::string &) {
                                   std::cout << "WARNING " << opt2->get_name() << " is retired and has no effect\n";
                                   return std::string();
                               },
                               ""};
+    // LCOV_EXCL_STOP
     retired_warning.application_index(0);
     opt2->check(retired_warning);
 }
@@ -2245,11 +2483,14 @@ CLI11_INLINE void retire_option(App *app, const std::string &option_name) {
                      ->type_name("RETIRED")
                      ->expected(0, 1)
                      ->default_str("RETIRED");
+    // LCOV_EXCL_START
+    // something odd with coverage on new compilers
     Validator retired_warning{[opt2](std::string &) {
                                   std::cout << "WARNING " << opt2->get_name() << " is retired and has no effect\n";
                                   return std::string();
                               },
                               ""};
+    // LCOV_EXCL_STOP
     retired_warning.application_index(0);
     opt2->check(retired_warning);
 }

@@ -1,10 +1,14 @@
-// Copyright (c) 2017-2024, University of Cincinnati, developed by Henry Schreiner
+// Copyright (c) 2017-2025, University of Cincinnati, developed by Henry Schreiner
 // under NSF AWARD 1414736 and by the respective contributors.
 // All rights reserved.
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "app_helper.hpp"
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 using vs_t = std::vector<std::string>;
 
@@ -16,8 +20,10 @@ TEST_CASE_METHOD(TApp, "BasicSubcommands", "[subcom]") {
 
     CHECK(app.get_subcommand(sub1) == sub1);
     CHECK(app.get_subcommand("sub1") == sub1);
+    CHECK(app.get_subcommand_no_throw("sub1") == sub1);
     CHECK_THROWS_AS(app.get_subcommand("sub3"), CLI::OptionNotFound);
-
+    CHECK_NOTHROW(app.get_subcommand_no_throw("sub3"));
+    CHECK(app.get_subcommand_no_throw("sub3") == nullptr);
     run();
     CHECK(app.get_subcommands().empty());
 
@@ -90,7 +96,7 @@ TEST_CASE_METHOD(TApp, "MultiSubFallthrough", "[subcom]") {
     CHECK(!sub2->parsed());
     CHECK(0u == sub2->count());
 
-    CHECK_THROWS_AS(app.got_subcommand("sub3"), CLI::OptionNotFound);
+    CHECK(!app.got_subcommand("sub3"));
 }
 
 TEST_CASE_METHOD(TApp, "CrazyNameSubcommand", "[subcom]") {
@@ -101,6 +107,111 @@ TEST_CASE_METHOD(TApp, "CrazyNameSubcommand", "[subcom]") {
     run();
 
     CHECK(app.got_subcommand("crazy name with spaces"));
+    CHECK(1u == sub1->count());
+}
+
+TEST_CASE_METHOD(TApp, "subcommandPrefix", "[subcom]") {
+    app.allow_subcommand_prefix_matching();
+    auto *sub1 = app.add_subcommand("sub1");
+    CHECK(app.get_allow_subcommand_prefix_matching());
+    // name can be set to whatever
+    CHECK_NOTHROW(sub1->name("crazy name with spaces"));
+    args = {"crazy name with spaces"};
+
+    run();
+
+    CHECK(app.got_subcommand("crazy name with spaces"));
+    CHECK(1u == sub1->count());
+
+    args = {"crazy name"};
+    run();
+
+    CHECK(app.got_subcommand("crazy name with spaces"));
+    CHECK(1u == sub1->count());
+
+    args = {"crazy"};
+    run();
+
+    CHECK(app.got_subcommand("crazy name"));
+    CHECK(1u == sub1->count());
+
+    args = {"cr"};
+    run();
+
+    CHECK(app.got_subcommand("crazy"));
+    CHECK(1u == sub1->count());
+
+    args = {"c"};
+    run();
+
+    CHECK(app.got_subcommand("crazy"));
+    CHECK(1u == sub1->count());
+}
+
+TEST_CASE_METHOD(TApp, "subcommandPrefixAlias", "[subcom]") {
+    app.allow_subcommand_prefix_matching();
+    auto *sub1 = app.add_subcommand("sub1");
+    CHECK(app.get_allow_subcommand_prefix_matching());
+    // name can be set to whatever
+    sub1->alias("crazy name with spaces");
+    args = {"crazy name with spaces"};
+
+    run();
+
+    CHECK(app.got_subcommand("crazy name with spaces"));
+    CHECK(1u == sub1->count());
+
+    args = {"crazy name"};
+    run();
+
+    CHECK(app.got_subcommand("crazy name with spaces"));
+    CHECK(1u == sub1->count());
+
+    args = {"crazy"};
+    run();
+
+    CHECK(app.got_subcommand("crazy name"));
+    CHECK(1u == sub1->count());
+
+    args = {"cr"};
+    run();
+
+    CHECK(app.got_subcommand("crazy"));
+    CHECK(1u == sub1->count());
+
+    args = {"c"};
+    run();
+
+    CHECK(app.got_subcommand("crazy"));
+    CHECK(1u == sub1->count());
+}
+
+TEST_CASE_METHOD(TApp, "subcommandPrefixMultiple", "[subcom]") {
+    app.allow_subcommand_prefix_matching();
+    auto *sub1 = app.add_subcommand("sub_long_prefix");
+    auto *sub2 = app.add_subcommand("sub_elong_prefix");
+    // name can be set to whatever
+    args = {"sub_long"};
+
+    run();
+
+    CHECK(app.got_subcommand("sub_long_prefix"));
+    CHECK(1u == sub1->count());
+
+    args = {"sub_e"};
+    run();
+
+    CHECK(app.got_subcommand("sub_elong_prefix"));
+    CHECK(1u == sub2->count());
+
+    args = {"sub_"};
+    CHECK_THROWS_AS(run(), CLI::ExtrasError);
+    args = {"sub_long"};
+    // now turning prefix matching off on main app but left on in subcommands
+    app.allow_subcommand_prefix_matching(false);
+    run();
+    // as the subcommands can specifically match on prefix the first is matched even if there is ambiguity
+    CHECK(app.got_subcommand("sub_long_prefix"));
     CHECK(1u == sub1->count());
 }
 
@@ -717,10 +828,23 @@ TEST_CASE_METHOD(TApp, "Required1SubCom", "[subcom]") {
     CHECK_THROWS_AS(run(), CLI::RequiredError);
 
     args = {"sub1"};
-    run();
+    CHECK_NOTHROW(run());
 
     args = {"sub1", "sub2"};
     CHECK_THROWS_AS(run(), CLI::ExtrasError);
+}
+
+TEST_CASE_METHOD(TApp, "subcomNoSubComfallthrough", "[subcom]") {
+    auto *sub1 = app.add_subcommand("sub1");
+    std::vector<std::string> pos;
+    sub1->add_option("args", pos);
+    app.add_subcommand("sub2");
+    app.add_subcommand("sub3");
+    sub1->subcommand_fallthrough(false);
+    CHECK_FALSE(sub1->get_subcommand_fallthrough());
+    args = {"sub1", "sub2", "sub3"};
+    run();
+    CHECK(pos.size() == 2);
 }
 
 TEST_CASE_METHOD(TApp, "BadSubcommandSearch", "[subcom]") {
@@ -811,6 +935,22 @@ TEST_CASE_METHOD(TApp, "RequiredPosInSubcommand", "[subcom]") {
 
     args = {};
     CHECK_THROWS_AS(run(), CLI::RequiredError);
+}
+
+// from  https://github.com/CLIUtils/CLI11/issues/1002
+TEST_CASE_METHOD(TApp, "ForcedSubcommandExclude", "[subcom]") {
+    auto *subcommand_1 = app.add_subcommand("sub_1");
+    std::string forced;
+    subcommand_1->add_flag_function("-f", [&forced](bool f) { forced = f ? "got true" : "got false"; })
+        ->force_callback();
+
+    auto *subcommand_2 = app.add_subcommand("sub2");
+
+    subcommand_1->excludes(subcommand_2);
+
+    args = {"sub2"};
+    CHECK_NOTHROW(run());
+    CHECK(forced == "got false");
 }
 
 TEST_CASE_METHOD(TApp, "invalidSubcommandName", "[subcom]") {
@@ -1011,18 +1151,18 @@ TEST_CASE_METHOD(SubcommandProgram, "Subcommand Groups", "[subcom]") {
 
     std::string help = app.help();
     CHECK_THAT(help, !Contains("More Commands:"));
-    CHECK_THAT(help, Contains("Subcommands:"));
+    CHECK_THAT(help, Contains("SUBCOMMANDS:"));
 
     start->group("More Commands");
     help = app.help();
     CHECK_THAT(help, Contains("More Commands:"));
-    CHECK_THAT(help, Contains("Subcommands:"));
+    CHECK_THAT(help, Contains("SUBCOMMANDS:"));
 
     // Case is ignored but for the first subcommand in a group.
     stop->group("more commands");
     help = app.help();
     CHECK_THAT(help, Contains("More Commands:"));
-    CHECK_THAT(help, !Contains("Subcommands:"));
+    CHECK_THAT(help, !Contains("SUBCOMMANDS:"));
 }
 
 TEST_CASE_METHOD(SubcommandProgram, "Subcommand ExtrasErrors", "[subcom]") {
@@ -1711,6 +1851,25 @@ TEST_CASE_METHOD(TApp, "subcommand_help", "[subcom]") {
     CHECK(called);
 }
 
+TEST_CASE_METHOD(TApp, "DuplicateErrors", "[subcom]") {
+    app.allow_non_standard_option_names();
+    app.add_option("-t");
+    app.add_option("m");
+    app.add_option("--quit");
+    auto *sub1 = app.add_option_group("sub1");
+
+    CHECK_THROWS_AS(sub1->add_option("-t"), CLI::OptionAlreadyAdded);
+    CHECK_THROWS_AS(sub1->add_option("--t"), CLI::OptionAlreadyAdded);
+    CHECK_THROWS_AS(sub1->add_option("t"), CLI::OptionAlreadyAdded);
+    CHECK_THROWS_AS(sub1->add_option("-m"), CLI::OptionAlreadyAdded);
+    CHECK_THROWS_AS(sub1->add_option("--m"), CLI::OptionAlreadyAdded);
+    CHECK_THROWS_AS(sub1->add_option("m"), CLI::OptionAlreadyAdded);
+    CHECK_THROWS_AS(sub1->add_option("quit"), CLI::OptionAlreadyAdded);
+    CHECK_THROWS_AS(sub1->add_option("--quit"), CLI::OptionAlreadyAdded);
+    sub1->allow_non_standard_option_names();
+    CHECK_THROWS_AS(sub1->add_option("-quit"), CLI::OptionAlreadyAdded);
+}
+
 TEST_CASE_METHOD(TApp, "AliasErrors", "[subcom]") {
     auto *sub1 = app.add_subcommand("sub1");
     auto *sub2 = app.add_subcommand("sub2");
@@ -1738,6 +1897,24 @@ TEST_CASE_METHOD(TApp, "AliasErrors", "[subcom]") {
     sub2->ignore_underscore();
     CHECK_THROWS_AS(sub2->alias("les3"), CLI::OptionAlreadyAdded);
 }
+
+TEST_CASE_METHOD(TApp, "DuplicateErrorsPrefix", "[subcom]") {
+    app.allow_subcommand_prefix_matching(true);
+    auto *sub1 = app.add_subcommand("sub_test");
+    auto *sub2 = app.add_subcommand("sub_deploy");
+
+    CHECK_THROWS_AS(app.add_subcommand("sub"), CLI::OptionAlreadyAdded);
+    // cannot alias to an existing subcommand
+    CHECK_THROWS_AS(sub2->alias("sub"), CLI::OptionAlreadyAdded);
+    app.ignore_case();
+    // this needs to be opposite of the subcommand the alias is being tested on to check for ambiguity
+    sub2->ignore_case();
+    CHECK_THROWS_AS(sub1->alias("SUB_"), CLI::OptionAlreadyAdded);
+    app.ignore_underscore();
+    sub1->ignore_underscore();
+    CHECK_THROWS_AS(sub2->alias("su_bt"), CLI::OptionAlreadyAdded);
+}
+
 // test adding a subcommand via the pointer
 TEST_CASE_METHOD(TApp, "ExistingSubcommandMatch", "[subcom]") {
     auto sshared = std::make_shared<CLI::App>("documenting the subcommand", "sub1");
@@ -2056,7 +2233,7 @@ TEST_CASE_METHOD(TApp, "DotNotationSubcommandSingleChar", "[subcom]") {
     CHECK(subs.front()->get_name() == "sub2");
 }
 
-TEST_CASE_METHOD(TApp, "DotNotationSubcommandRecusive", "[subcom]") {
+TEST_CASE_METHOD(TApp, "DotNotationSubcommandRecursive", "[subcom]") {
     std::string v1, v2, v3, vbase;
 
     auto *sub1 = app.add_subcommand("sub1");
@@ -2084,7 +2261,7 @@ TEST_CASE_METHOD(TApp, "DotNotationSubcommandRecusive", "[subcom]") {
     CHECK(extras.front() == "--sub1.sub2.bob");
 }
 
-TEST_CASE_METHOD(TApp, "DotNotationSubcommandRecusive2", "[subcom]") {
+TEST_CASE_METHOD(TApp, "DotNotationSubcommandRecursive2", "[subcom]") {
     std::string v1, v2, v3, vbase;
 
     auto *sub1 = app.add_subcommand("sub1");

@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2024, University of Cincinnati, developed by Henry Schreiner
+// Copyright (c) 2017-2025, University of Cincinnati, developed by Henry Schreiner
 // under NSF AWARD 1414736 and by the respective contributors.
 // All rights reserved.
 //
@@ -12,6 +12,7 @@
 #endif
 
 #include <atomic>
+#include <complex>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -24,7 +25,7 @@ namespace CLI {
 class intWrapper64 {
   public:
     intWrapper64() = default;
-    explicit intWrapper64(int64_t v) : val(v){};
+    explicit intWrapper64(int64_t v) : val(v) {};
     CLI11_NODISCARD int64_t value() const { return val; }
 
   private:
@@ -34,7 +35,7 @@ class intWrapper64 {
 class doubleWrapper {
   public:
     doubleWrapper() = default;
-    explicit doubleWrapper(double v) : val(v){};
+    explicit doubleWrapper(double v) : val(v) {};
     CLI11_NODISCARD double value() const { return val; }
 
   private:
@@ -44,19 +45,40 @@ class doubleWrapper {
 class stringWrapper {
   public:
     stringWrapper() = default;
-    explicit stringWrapper(std::string_view v) : val(v){};
+    explicit stringWrapper(std::string_view v) : val(v) {};
     CLI11_NODISCARD std::string value() const { return val; }
 
   private:
     std::string val{};
 };
 
+/// @brief  class for extracting data for custom subcommand generation.
+class SubcommandData {
+  public:
+    std::string name{""};
+    std::string description{""};
+    std::string modifiers{""};
+    std::string data{""};
+    std::size_t next{std::string::npos};
+};
+
+SubcommandData extract_subcomand_info(const std::string &description_string, std::size_t index);
+
 class FuzzApp {
   public:
     FuzzApp() = default;
-
+    /** generate a fuzzing application with a bunch of different interfaces*/
     std::shared_ptr<CLI::App> generateApp();
-
+    /** compare two fuzz apps for equality*/
+    CLI11_NODISCARD bool compare(const FuzzApp &other, bool print_error = false) const;
+    /** generate additional options based on a string config*/
+    std::size_t add_custom_options(CLI::App *app, const std::string &description_string);
+    /** modify an option based on string*/
+    static void modify_option(CLI::Option *opt, const std::string &modifier);
+    /** modify a subcommand based on characters in a string*/
+    static void modify_subcommand(CLI::App *app, const std::string &modifiers);
+    /** return true if the app itself support conversiont to config files*/
+    CLI11_NODISCARD bool supports_config_file() const { return !non_config_required; }
     int32_t val32{0};
     int16_t val16{0};
     int8_t val8{0};
@@ -80,6 +102,7 @@ class FuzzApp {
     std::vector<std::vector<std::string>> vvs{};
     std::optional<double> od1{};
     std::optional<std::string> ods{};
+    std::optional<std::vector<std::string>> ovs{};
     std::pair<double, std::string> p1{};
     std::pair<std::vector<double>, std::string> p2{};
     std::tuple<int64_t, uint16_t, std::optional<double>> t1{};
@@ -102,6 +125,9 @@ class FuzzApp {
     doubleWrapper dwrap{0.0};
     stringWrapper swrap{};
     std::string buffer{};
+    std::complex<double> cv3{0.0, 0.0};
+    std::complex<float> cv4{0.0, 0.0};
+
     int intbuffer{0};
     std::atomic<double> doubleAtomic{0.0};
 
@@ -114,5 +140,10 @@ class FuzzApp {
     std::vector<std::string> vstrF{};
     std::string mergeBuffer{};
     std::vector<std::string> validator_strings{};
+    std::vector<std::shared_ptr<std::pair<std::string, bool>>> custom_string_options{};
+    std::vector<std::shared_ptr<std::pair<std::vector<std::string>, bool>>> custom_vector_options{};
+
+  private:
+    bool non_config_required{false};
 };
 }  // namespace CLI
