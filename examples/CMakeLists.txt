@@ -10,17 +10,14 @@ function(add_cli_exe T)
   endif()
 endfunction()
 
-if(CLI11_BUILD_EXAMPLES_JSON)
+if(CLI11_BUILD_EXAMPLES_JSON AND CMAKE_VERSION VERSION_GREATER "3.14.7")
   message(STATUS "Using nlohmann/json")
   FetchContent_Declare(
     json
     URL https://github.com/nlohmann/json/releases/download/v3.7.3/include.zip
     URL_HASH "SHA256=87b5884741427220d3a33df1363ae0e8b898099fbc59f1c451113f6732891014")
 
-  FetchContent_GetProperties(json)
-  if(NOT json_POPULATED)
-    FetchContent_Populate(json)
-  endif()
+  FetchContent_MakeAvailable(json)
 
   add_cli_exe(json json.cpp)
   target_include_directories(json PUBLIC SYSTEM "${json_SOURCE_DIR}/single_include")
@@ -75,8 +72,8 @@ set_property(
            "Working on count: 2, direct count: 2, opt count: 2" "Some value: 1.2")
 # test shows that the help prints out for unnamed subcommands
 add_test(NAME subcom_partitioned_help COMMAND subcom_partitioned --help)
-set_property(TEST subcom_partitioned_help PROPERTY PASS_REGULAR_EXPRESSION
-                                                   "-f,--file TEXT REQUIRED" "-d,--double FLOAT")
+set_property(TEST subcom_partitioned_help
+             PROPERTY PASS_REGULAR_EXPRESSION "-f,[ \\t]*--file TEXT REQUIRED" "-d,--double FLOAT")
 
 ####################################################
 add_cli_exe(config_app config_app.cpp)
@@ -99,7 +96,7 @@ add_test(NAME option_groups_missing COMMAND option_groups)
 set_property(TEST option_groups_missing PROPERTY PASS_REGULAR_EXPRESSION "Exactly 1 option from"
                                                  "is required")
 add_test(NAME option_groups_extra COMMAND option_groups --csv --binary)
-set_property(TEST option_groups_extra PROPERTY PASS_REGULAR_EXPRESSION "and 2 were given")
+set_property(TEST option_groups_extra PROPERTY PASS_REGULAR_EXPRESSION "but 2 were given")
 add_test(NAME option_groups_extra2 COMMAND option_groups --csv --address "192.168.1.1" -o
                                            "test.out")
 set_property(TEST option_groups_extra2 PROPERTY PASS_REGULAR_EXPRESSION "at most 1")
@@ -125,13 +122,28 @@ set_property(TEST positional_validation3 PROPERTY PASS_REGULAR_EXPRESSION "File 
 add_test(NAME positional_validation4 COMMAND positional_validation 1 one two 2)
 set_property(TEST positional_validation4 PROPERTY PASS_REGULAR_EXPRESSION "File 1 = one"
                                                   "File 2 = two")
+if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.0)
+   OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  #this test doesn't work without get_time which isn't available until GCC 5.0
+  add_cli_exe(date_validator date_validator.cpp)
+  add_test(NAME date_validator1 COMMAND date_validator --time 2025-08-14T14:30:00)
+  set_property(TEST date_validator1 PROPERTY PASS_REGULAR_EXPRESSION "date given")
+  add_test(NAME date_validator2 COMMAND date_validator --time 8/17/2025T14:30:00)
+  set_property(TEST date_validator2 PROPERTY PASS_REGULAR_EXPRESSION "Failed to parse time string")
+endif()
+
+add_cli_exe(custom_validator custom_validator.cpp)
+add_test(NAME custom_validator1 COMMAND custom_validator --number 12)
+set_property(TEST custom_validator1 PROPERTY PASS_REGULAR_EXPRESSION "value not within range")
+add_test(NAME custom_validator2 COMMAND custom_validator --number 12 --center 10 --range 3)
+set_property(TEST custom_validator2 PROPERTY PASS_REGULAR_EXPRESSION "number 12 in range")
 
 add_cli_exe(shapes shapes.cpp)
 add_test(NAME shapes_all COMMAND shapes circle 4.4 circle 10.7 rectangle 4 4 circle 2.3 triangle
                                  4.5 ++ rectangle 2.1 ++ circle 234.675)
 set_property(
   TEST shapes_all PROPERTY PASS_REGULAR_EXPRESSION "circle2" "circle4"
-                           "rectangle2 with edges [2.1,2.1]" "triangel1 with sides [4.5]")
+                           "rectangle2 with edges [2.1,2.1]" "triangle1 with sides [4.5]")
 
 add_cli_exe(ranges ranges.cpp)
 add_test(NAME ranges_range COMMAND ranges --range 1 2 3)
@@ -145,8 +157,8 @@ add_cli_exe(validators validators.cpp)
 add_test(NAME validators_help COMMAND validators --help)
 set_property(
   TEST validators_help
-  PROPERTY PASS_REGULAR_EXPRESSION "  -f,--file TEXT:FILE[\\r\\n\\t ]+File name"
-           "  -v,--value INT:INT in [3 - 6][\\r\\n\\t ]+Value in range")
+  PROPERTY PASS_REGULAR_EXPRESSION "  -f,[ \\t]*--file TEXT:FILE[\\r\\n\\t ]+File name"
+           "  -v,[ \\t]*--value INT:INT in [3 - 6][\\r\\n\\t ]+Value in range")
 add_test(NAME validators_file COMMAND validators --file nonex.xxx)
 set_property(
   TEST validators_file PROPERTY PASS_REGULAR_EXPRESSION "--file: File does not exist: nonex.xxx"
@@ -219,6 +231,10 @@ add_cli_exe(modhelp modhelp.cpp)
 add_test(NAME modhelp COMMAND modhelp -a test -h)
 set_property(TEST modhelp PROPERTY PASS_REGULAR_EXPRESSION "Option -a string in help: test")
 
+add_cli_exe(array_option array_option.cpp)
+add_test(NAME array_option COMMAND array_option --a 1 2)
+set_property(TEST array_option PROPERTY PASS_REGULAR_EXPRESSION "pass")
+
 add_subdirectory(subcom_in_files)
 add_test(NAME subcom_in_files COMMAND subcommand_main subcommand_a -f this.txt --with-foo)
 set_property(TEST subcom_in_files PROPERTY PASS_REGULAR_EXPRESSION "Working on file: this\.txt"
@@ -246,10 +262,31 @@ set_property(TEST retired_retired_test3 PROPERTY PASS_REGULAR_EXPRESSION "WARNIN
 
 set_property(TEST retired_deprecated PROPERTY PASS_REGULAR_EXPRESSION "deprecated.*not_deprecated")
 
+if(CMAKE_CXX_STANDARD GREATER 13)
+  add_cli_exe(close_match close_match.cpp)
+
+  add_test(NAME close_match_test COMMAND close_match i)
+  add_test(NAME close_match_test2 COMMAND close_match upg)
+  add_test(NAME close_match_test3 COMMAND close_match rem)
+  add_test(NAME close_match_test4 COMMAND close_match upgrde)
+
+  set_property(TEST close_match_test PROPERTY PASS_REGULAR_EXPRESSION "install")
+
+  set_property(TEST close_match_test2 PROPERTY PASS_REGULAR_EXPRESSION "upgrade")
+
+  set_property(TEST close_match_test3 PROPERTY PASS_REGULAR_EXPRESSION "remove")
+
+  set_property(TEST close_match_test4 PROPERTY PASS_REGULAR_EXPRESSION "closest match is upgrade")
+endif()
 #--------------------------------------------
 add_cli_exe(custom_parse custom_parse.cpp)
 add_test(NAME cp_test COMMAND custom_parse --dv 1.7)
 set_property(TEST cp_test PROPERTY PASS_REGULAR_EXPRESSION "called correct")
+
+#-----------------------------------------------------
+add_cli_exe(help_usage help_usage.cpp)
+add_test(NAME help_use COMMAND help_usage --help)
+set_property(TEST help_use PROPERTY PASS_REGULAR_EXPRESSION "[1..9]")
 
 #------------------------------------------------
 # This executable is for manual testing and is expected to change regularly

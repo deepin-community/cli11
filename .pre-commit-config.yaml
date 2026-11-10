@@ -1,16 +1,16 @@
-exclude: ^(.github/workflows/|docs/img/)
+exclude: ^(.github/workflows/|docs/img/|tests/fuzzFail)
 ci:
   autoupdate_commit_msg: "chore(deps): pre-commit.ci autoupdate"
   autofix_commit_msg: "style: pre-commit.ci fixes"
 
 repos:
-  - repo: https://github.com/psf/black
-    rev: 24.1.1
+  - repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 25.9.0
     hooks:
       - id: black
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v6.0.0
     hooks:
       - id: check-added-large-files
       - id: check-case-conflict
@@ -26,7 +26,7 @@ repos:
       - id: debug-statements
 
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v17.0.6
+    rev: v21.1.2
     hooks:
       - id: clang-format
         types_or: [c++, c, cuda]
@@ -45,12 +45,10 @@ repos:
         args: [--prose-wrap=always]
 
   - repo: https://github.com/markdownlint/markdownlint
-    rev: v0.12.0
+    rev: v0.13.0
     hooks:
       - id: markdownlint
-        args: ["--style=scripts/mdlint_style.rb"]
-        # Uncomment on macOS - Apple has deprecated Ruby, so macOS is stuck on 2.6
-        # language_version: 3.1.2
+        args: [-s, ./scripts/.markdownlintrc]
 
   # - repo: local
   #   hooks:
@@ -87,7 +85,7 @@ repos:
         exclude: .pre-commit-config.yaml
 
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.2.6
+    rev: v2.4.1
     hooks:
       - id: codespell
-        args: ["-L", "atleast,ans,doub,inout"]
+        args: ["-L", "atleast,ans,doub,inout,AtMost,hep"]

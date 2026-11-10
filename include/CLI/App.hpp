@@ -1,10 +1,12 @@
-// Copyright (c) 2017-2024, University of Cincinnati, developed by Henry Schreiner
+// Copyright (c) 2017-2025, University of Cincinnati, developed by Henry Schreiner
 // under NSF AWARD 1414736 and by the respective contributors.
 // All rights reserved.
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
 #pragma once
+
+// IWYU pragma: private, include "CLI/CLI.hpp"
 
 // [CLI11:public_includes:set]
 #include <algorithm>
@@ -44,7 +46,15 @@ namespace CLI {
 #endif
 
 namespace detail {
-enum class Classifier { NONE, POSITIONAL_MARK, SHORT, LONG, WINDOWS_STYLE, SUBCOMMAND, SUBCOMMAND_TERMINATOR };
+enum class Classifier : std::uint8_t {
+    NONE,
+    POSITIONAL_MARK,
+    SHORT,
+    LONG,
+    WINDOWS_STYLE,
+    SUBCOMMAND,
+    SUBCOMMAND_TERMINATOR
+};
 struct AppFriend;
 }  // namespace detail
 
@@ -58,7 +68,7 @@ CLI11_INLINE std::string help(const App *app, const Error &e);
 
 /// enumeration of modes of how to deal with extras in config files
 
-enum class config_extras_mode : char { error = 0, ignore, ignore_all, capture };
+enum class config_extras_mode : std::uint8_t { error = 0, ignore, ignore_all, capture };
 
 class App;
 
@@ -105,10 +115,10 @@ class App {
     bool allow_extras_{false};
 
     /// If ignore, allow extra arguments in the ini file (ie, don't throw an error). INHERITABLE
-    /// if error error on an extra argument, and if capture feed it to the app
+    /// if error, error on an extra argument, and if capture feed it to the app
     config_extras_mode allow_config_extras_{config_extras_mode::ignore};
 
-    ///  If true, return immediately on an unrecognized option (implies allow_extras) INHERITABLE
+    ///  If true, cease processing on an unrecognized option (implies allow_extras) INHERITABLE
     bool prefix_command_{false};
 
     /// If set to true the name was automatically generated from the command line vs a user set name
@@ -216,14 +226,18 @@ class App {
     /// Storage for subcommand list
     std::vector<App_p> subcommands_{};
 
-    /// If true, the program name is not case sensitive INHERITABLE
+    /// If true, the program name is not case-sensitive INHERITABLE
     bool ignore_case_{false};
 
     /// If true, the program should ignore underscores INHERITABLE
     bool ignore_underscore_{false};
 
-    /// Allow subcommand fallthrough, so that parent commands can collect commands after subcommand.  INHERITABLE
+    /// Allow options or other arguments to fallthrough, so that parent commands can collect options after subcommand.
+    /// INHERITABLE
     bool fallthrough_{false};
+
+    /// Allow subcommands to fallthrough, so that parent commands can trigger other subcommands after subcommand.
+    bool subcommand_fallthrough_{true};
 
     /// Allow '/' for options for Windows like options. Defaults to true on Windows, false otherwise. INHERITABLE
     bool allow_windows_style_options_{
@@ -236,7 +250,7 @@ class App {
     /// specify that positional arguments come at the end of the argument sequence not inheritable
     bool positionals_at_end_{false};
 
-    enum class startup_mode : char { stable, enabled, disabled };
+    enum class startup_mode : std::uint8_t { stable, enabled, disabled };
     /// specify the startup mode for the app
     /// stable=no change, enabled= startup enabled, disabled=startup disabled
     startup_mode default_startup{startup_mode::stable};
@@ -253,6 +267,12 @@ class App {
     /// indicator that the subcommand is silent and won't show up in subcommands list
     /// This is potentially useful as a modifier subcommand
     bool silent_{false};
+
+    /// indicator that the subcommand should allow non-standard option arguments, such as -single_dash_flag
+    bool allow_non_standard_options_{false};
+
+    /// indicator to allow subcommands to match with prefix matching
+    bool allow_prefix_matching_{false};
 
     /// Counts the number of times this command/subcommand was parsed
     std::uint32_t parsed_{0U};
@@ -273,7 +293,7 @@ class App {
     App *parent_{nullptr};
 
     /// The group membership INHERITABLE
-    std::string group_{"Subcommands"};
+    std::string group_{"SUBCOMMANDS"};
 
     /// Alias names for the subcommand
     std::vector<std::string> aliases_{};
@@ -386,6 +406,17 @@ class App {
         return this;
     }
 
+    /// allow non standard option names
+    App *allow_non_standard_option_names(bool allowed = true) {
+        allow_non_standard_options_ = allowed;
+        return this;
+    }
+
+    /// allow prefix matching for subcommands
+    App *allow_subcommand_prefix_matching(bool allowed = true) {
+        allow_prefix_matching_ = allowed;
+        return this;
+    }
     /// Set the subcommand to be disabled by default, so on clear(), at the start of each parse it is disabled
     App *disabled_by_default(bool disable = true) {
         if(disable) {
@@ -440,9 +471,10 @@ class App {
         return this;
     }
 
-    /// Do not parse anything after the first unrecognized option and return
-    App *prefix_command(bool allow = true) {
-        prefix_command_ = allow;
+    /// Do not parse anything after the first unrecognized option (if true) all remaining arguments are stored in
+    /// remaining args
+    App *prefix_command(bool is_prefix = true) {
+        prefix_command_ = is_prefix;
         return this;
     }
 
@@ -623,13 +655,15 @@ class App {
     Option *add_flag(std::string flag_name) { return _add_flag_internal(flag_name, CLI::callback_t(), std::string{}); }
 
     /// Add flag with description but with no variable assignment or callback
-    /// takes a constant string,  if a variable string is passed that variable will be assigned the results from the
-    /// flag
+    /// takes a constant string or a rvalue reference to a string,  if a variable string is passed that variable will be
+    /// assigned the results from the flag
     template <typename T,
-              enable_if_t<std::is_const<T>::value && std::is_constructible<std::string, T>::value, detail::enabler> =
-                  detail::dummy>
-    Option *add_flag(std::string flag_name, T &flag_description) {
-        return _add_flag_internal(flag_name, CLI::callback_t(), flag_description);
+              enable_if_t<(std::is_const<typename std::remove_reference<T>::type>::value ||
+                           std::is_rvalue_reference<T &&>::value) &&
+                              std::is_constructible<std::string, typename std::remove_reference<T>::type>::value,
+                          detail::enabler> = detail::dummy>
+    Option *add_flag(std::string flag_name, T &&flag_description) {
+        return _add_flag_internal(flag_name, CLI::callback_t(), std::forward<T>(flag_description));
     }
 
     /// Other type version accepts all other types that are not vectors such as bool, enum, string or other classes
@@ -708,7 +742,10 @@ class App {
         auto option_group = std::make_shared<T>(std::move(group_description), group_name, this);
         auto *ptr = option_group.get();
         // move to App_p for overload resolution on older gcc versions
-        App_p app_ptr = std::dynamic_pointer_cast<App>(option_group);
+        App_p app_ptr = std::static_pointer_cast<App>(option_group);
+        // don't inherit the footer in option groups and clear the help flag by default
+        app_ptr->footer_ = "";
+        app_ptr->set_help_flag();
         add_subcommand(std::move(app_ptr));
         return ptr;
     }
@@ -732,6 +769,10 @@ class App {
 
     /// Check to see if a subcommand is part of this command (text version)
     CLI11_NODISCARD App *get_subcommand(std::string subcom) const;
+
+    /// Get a subcommand by name (noexcept non-const version)
+    /// returns null if subcommand doesn't exist
+    CLI11_NODISCARD App *get_subcommand_no_throw(std::string subcom) const noexcept;
 
     /// Get a pointer to subcommand by index
     CLI11_NODISCARD App *get_subcommand(int index = 0) const;
@@ -821,10 +862,16 @@ class App {
         return this;
     }
 
-    /// Stop subcommand fallthrough, so that parent commands cannot collect commands after subcommand.
+    /// Set fallthrough, set to true so that options will fallthrough to parent if not recognized in a subcommand
     /// Default from parent, usually set on parent.
     App *fallthrough(bool value = true) {
         fallthrough_ = value;
+        return this;
+    }
+
+    /// Set subcommand fallthrough, set to true so that subcommands on parents are recognized
+    App *subcommand_fallthrough(bool value = true) {
+        subcommand_fallthrough_ = value;
         return this;
     }
 
@@ -907,8 +954,9 @@ class App {
     }
 
     /// Check with name instead of pointer to see if subcommand was selected
-    CLI11_NODISCARD bool got_subcommand(std::string subcommand_name) const {
-        return get_subcommand(subcommand_name)->parsed_ > 0;
+    CLI11_NODISCARD bool got_subcommand(std::string subcommand_name) const noexcept {
+        App *sub = get_subcommand_no_throw(subcommand_name);
+        return (sub != nullptr) ? (sub->parsed_ > 0) : false;
     }
 
     /// Sets excluded options for the subcommand
@@ -1038,7 +1086,7 @@ class App {
     std::vector<Option *> get_options(const std::function<bool(Option *)> filter = {});
 
     /// Get an option by name (noexcept non-const version)
-    Option *get_option_no_throw(std::string option_name) noexcept;
+    CLI11_NODISCARD Option *get_option_no_throw(std::string option_name) noexcept;
 
     /// Get an option by name (noexcept const version)
     CLI11_NODISCARD const Option *get_option_no_throw(std::string option_name) const noexcept;
@@ -1075,6 +1123,9 @@ class App {
 
     /// Check the status of fallthrough
     CLI11_NODISCARD bool get_fallthrough() const { return fallthrough_; }
+
+    /// Check the status of subcommand fallthrough
+    CLI11_NODISCARD bool get_subcommand_fallthrough() const { return subcommand_fallthrough_; }
 
     /// Check the status of the allow windows style options
     CLI11_NODISCARD bool get_allow_windows_style_options() const { return allow_windows_style_options_; }
@@ -1124,6 +1175,12 @@ class App {
 
     /// Get the status of silence
     CLI11_NODISCARD bool get_silent() const { return silent_; }
+
+    /// Get the status of allowing non standard option names
+    CLI11_NODISCARD bool get_allow_non_standard_option_names() const { return allow_non_standard_options_; }
+
+    /// Get the status of allowing prefix matching for subcommands
+    CLI11_NODISCARD bool get_allow_subcommand_prefix_matching() const { return allow_prefix_matching_; }
 
     /// Get the status of disabled
     CLI11_NODISCARD bool get_immediate_callback() const { return immediate_callback_; }
@@ -1183,8 +1240,17 @@ class App {
     /// Get a display name for an app
     CLI11_NODISCARD std::string get_display_name(bool with_aliases = false) const;
 
-    /// Check the name, case insensitive and underscore insensitive if set
+    /// Check the name, case-insensitive and underscore insensitive, and prefix matching if set
+    /// @return true if matched
     CLI11_NODISCARD bool check_name(std::string name_to_check) const;
+
+    /// @brief  enumeration of matching possibilities
+    enum class NameMatch : std::uint8_t { none = 0, exact = 1, prefix = 2 };
+
+    /// Check the name, case-insensitive and underscore insensitive if set
+    /// @return NameMatch::none if no match, NameMatch::exact if the match is exact NameMatch::prefix if prefix is
+    /// enabled and a prefix matches
+    CLI11_NODISCARD NameMatch check_name_detail(std::string name_to_check) const;
 
     /// Get the groups available directly from this option (in order)
     CLI11_NODISCARD std::vector<std::string> get_groups() const;
@@ -1237,12 +1303,12 @@ class App {
     void _process_env();
 
     /// Process callbacks. Runs on *all* subcommands.
-    void _process_callbacks();
+    void _process_callbacks(CallbackPriority priority);
 
     /// Run help flag processing if any are found.
     ///
     /// The flags allow recursive calls to remember if there was a help flag on a parent.
-    void _process_help_flags(bool trigger_help = false, bool trigger_all_help = false) const;
+    void _process_help_flags(CallbackPriority priority, bool trigger_help = false, bool trigger_all_help = false) const;
 
     /// Verify required options and cross requirements. Subcommands too (only if selected).
     void _process_requirements();
@@ -1277,6 +1343,9 @@ class App {
 
     /// Fill in a single config option
     bool _parse_single_config(const ConfigItem &item, std::size_t level = 0);
+
+    /// @brief store the results for a flag like option
+    bool _add_flag_like_result(Option *op, const ConfigItem &item, const std::vector<std::string> &inputs);
 
     /// Parse "one" argument (some may eat more than one), delegate to parent if fails, add to missing if missing
     /// from main return false if the parse has failed and needs to return to parent
@@ -1333,6 +1402,11 @@ class Option_group : public App {
         : App(std::move(group_description), "", parent) {
         group(group_name);
         // option groups should have automatic fallthrough
+        if(group_name.empty() || group_name.front() == '+') {
+            // help will not be used by default in these contexts
+            set_help_flag("");
+            set_help_all_flag("");
+        }
     }
     using App::add_option;
     /// Add an existing option to the Option_group
@@ -1437,5 +1511,5 @@ struct AppFriend {
 }  // namespace CLI
 
 #ifndef CLI11_COMPILE
-#include "impl/App_inl.hpp"
+#include "impl/App_inl.hpp"  // IWYU pragma: export
 #endif

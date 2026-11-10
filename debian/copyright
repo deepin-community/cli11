@@ -6,7 +6,7 @@ Files-Excluded: .ci .github  .appveyor.yml  .editorconfig  .codecov.yml  .travis
 
 Files: *
 Copyright: 2017-2020 University of Cincinnati, developed by Henry Schreiner under NSF AWARD 1414736
-           2017-2023 University of Cincinnati, developed by Henry Schreiner
+           2017-2025 University of Cincinnati, developed by Henry Schreiner
 License: BSD-3-clause
 
 Files: cmake/CodeCoverage.cmake
@@ -14,7 +14,7 @@ Copyright: 2012-2017, Lars Bilke
 License: BSD-3-clause
 
 Files: debian/*
-Copyright: 2021-2024, Jose Luis Rivero
+Copyright: 2021-2025, Jose Luis Rivero
 License: BSD-3-clause
 
 License: BSD-3-clause

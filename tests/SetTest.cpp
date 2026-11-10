@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2024, University of Cincinnati, developed by Henry Schreiner
+// Copyright (c) 2017-2025, University of Cincinnati, developed by Henry Schreiner
 // under NSF AWARD 1414736 and by the respective contributors.
 // All rights reserved.
 //
@@ -7,6 +7,10 @@
 #include "app_helper.hpp"
 #include <map>
 #include <memory>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
 static_assert(CLI::is_shared_ptr<std::shared_ptr<int>>::value == true, "is_shared_ptr should work on shared pointers");
 static_assert(CLI::is_shared_ptr<int *>::value == false, "is_shared_ptr should work on pointers");
@@ -31,6 +35,20 @@ static_assert(CLI::detail::pair_adaptor<std::set<int>>::value == false, "Should 
 static_assert(CLI::detail::pair_adaptor<std::vector<std::string>>::value == false, "Should not have pairs");
 static_assert(CLI::detail::pair_adaptor<std::map<int, int>>::value == true, "Should have pairs");
 static_assert(CLI::detail::pair_adaptor<std::vector<std::pair<int, int>>>::value == true, "Should have pairs");
+
+/** just test a set as an option value type */
+TEST_CASE_METHOD(TApp, "simpleSet", "[set]") {
+    std::set<std::string> value;
+    auto *opt = app.add_option("-s,--set", value);
+    args = {"-s", "one", "-s", "two", "-s", "one"};
+    run();
+    CHECK(app.count("-s") == 3u);
+    CHECK(opt->count() == 3u);
+    CHECK(value.size() == 2u);
+}
+
+#if (defined(CLI11_ENABLE_EXTRA_VALIDATORS) && CLI11_ENABLE_EXTRA_VALIDATORS == 1) ||                                  \
+    (!defined(CLI11_DISABLE_EXTRA_VALIDATORS) || CLI11_DISABLE_EXTRA_VALIDATORS == 0)
 
 TEST_CASE_METHOD(TApp, "SimpleMaps", "[set]") {
     int value{0};
@@ -74,6 +92,28 @@ TEST_CASE_METHOD(TApp, "StringStringMapNoModify", "[set]") {
 
     args = {"-s", "c"};
     CHECK_THROWS_AS(run(), CLI::ValidationError);
+}
+
+TEST_CASE_METHOD(TApp, "StringStringMapNoModifyMultiple", "[set]") {
+    std::string value1, value2, value3;
+    std::map<std::string, std::string> map = {{"a", "b"}, {"b", "c"}};
+    CLI::Validator_p membership = std::make_shared<CLI::Validator>(CLI::IsMember(map));
+
+    app.add_option("--set1", value1)->check(membership);
+    app.add_option("--set2", value2)->check(membership);
+    app.add_option("--set3", value3)->check(membership);
+    args = {"--set1", "a"};
+    run();
+    CHECK("a" == value1);
+
+    args = {"--set2", "b"};
+    run();
+    CHECK("b" == value2);
+
+    args = {"--set3", "c"};
+    CHECK_THROWS_AS(run(), CLI::ValidationError);
+    // check that the validators are actually the same
+    CHECK(app.get_option("--set1")->get_validator(0) == app.get_option("--set3")->get_validator(0));
 }
 
 enum SimpleEnum { SE_one = 1, SE_two = 2 };
@@ -727,3 +767,5 @@ TEST_CASE_METHOD(TApp, "AddRemoveSetItemsNoCase", "[set]") {
     args = {"--type2", "TYpE2"};
     CHECK_THROWS_AS(run(), CLI::ValidationError);
 }
+
+#endif

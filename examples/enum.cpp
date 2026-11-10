@@ -1,14 +1,16 @@
-// Copyright (c) 2017-2024, University of Cincinnati, developed by Henry Schreiner
+// Copyright (c) 2017-2025, University of Cincinnati, developed by Henry Schreiner
 // under NSF AWARD 1414736 and by the respective contributors.
 // All rights reserved.
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
+#define CLI11_ENABLE_EXTRA_VALIDATORS 1
 #include <CLI/CLI.hpp>
 #include <iostream>
 #include <map>
 #include <string>
 
+// NOLINTNEXTLINE
 enum class Level : int { High, Medium, Low };
 
 int main(int argc, char **argv) {

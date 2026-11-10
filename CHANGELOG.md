@@ -1,11 +1,224 @@
 # Changelog
 
+## Unreleased
+
+## Version 2.6.1
+
+Patch fixing some compile issues in specific situations in the recent release,
+and a potential segmentation fault from specially crafted config files
+
+### Added
+
+- Added CI tests for install and package management on macos-arm64 [#1238][]
+
+### Fixed
+
+- Fixed incorrect links to validator examples. [#1239][]
+- Fixed incorrect inclusion of definition for extra validators [#1238][]
+- Fixed fuzz generated failure from crafted files introduced in recent release
+  [#1238][]
+- Removed some usage of static const std::string in inline function that had
+  potential memory issues when CLI11 is used with shared libraries, this likely
+  isn't a bug but the fix did result in smaller code size so was kept. [#1244][]
+
+[#1244]: https://github.com/CLIUtils/CLI11/pull/1244
+[#1238]: https://github.com/CLIUtils/CLI11/pull/1238
+[#1239]: https://github.com/CLIUtils/CLI11/pull/1239
+
+## Version 2.6.0
+
+This version adds finer grained control of when option callbacks are executed,
+and further refinements in the help formatting. It also fixes a number of bugs
+in type support and the ordering of options. The other major change is moving
+Extra Validators to a new file which can be disabled for slightly faster
+compilation if not used, and allowing additional future Validators to be easily
+added.
+
+### Added
+
+- Added option to align long options with a ratio via
+  `long_option_alignment_ratio` in the formatter. This allows more control over
+  help output formatting. [#1185][]
+- Added support for `std::string_view` in the `as<T>` method on options.
+  [#1187][]
+- Added flags on the formatter to disable formatting for the description and
+  footer, allowing custom formatting such as word art. [#1150][]
+- Added subcommand prefix matching as a modifier to `CLI::App`. Also included an
+  example of close matching logic. [#1152][]
+- Added additional fuzzing mechanics, including fuzzing subcommands, and
+  improved handling of edge cases. [#1170][]
+- Added new tests for array options and fixed ambiguity between tuple and
+  container conversions. [#1136][]
+- Added ability to use rvalue references in `add_flag` descriptions. [#1173][]
+- Added CMake presets for default and tidy builds. [#1181][]
+- Added several validator examples and documentation [#1192][]
+- Added permission validators for files and directories [#1203][]
+- Added fine grained control for option callback priority, and in what order
+  options including help execute in the processing sequence. [#1226][]
+- Added github action to link with future testing is oss-fuzz [#1225][]
+
+### Changed
+
+- Moved several of the validators to `ExtraValidators.hpp` and
+  `ExtraValidators_inl.hpp` files, The compilation of these nonessential
+  validators can be disabled by setting `CLI11_DISABLE_EXTRA_VALIDATORS` to
+  `OFF`. Future additional validators will be behind a compile flag
+  `CLI11_ENABLE_EXTRA_VALIDATORS`. All non-essential validators will be under
+  this option with version 3.0. [#1192][]
+- Updated processing order: requirements are now checked before callbacks,
+  avoiding unexpected side effects. [#1186][]
+- Updated minimum required CMake version to 3.14+. [#1182][]
+- Improved Meson build: support for building shared precompiled libraries,
+  pkgconfig, and header installation. [#1167][]
+- Improved fuzzing tests with new failure cases and extended coverage. [#1164][]
+- Updated CI to remove deprecated images and add new ones (Windows-2022/2025,
+  arm64, FreeBSD). [#1172][], [#1178][]
+- Updated license file to include the correct version number for packagers.
+  [#1180][]
+
+### Fixed
+
+- Fixed issue with IPV4 validator where it would allow a trailing `.`. [#1192][]
+- Fixed edge case where a missing config file and no default caused a segfault.
+  [#1199][]
+- Fixed issue with TOML multiline arrays when the first line contained only a
+  single character. [#1196][]
+- Fixed default value conversion errors when locales added thousands separators.
+  [#1160][]
+- Fixed multiple footer printing in help output for option groups. [#1161][]
+- Fixed incorrect argument order in extras error messages. [#1162][]
+- Fixed reversed argument order in unexpected argument error messages. [#1158][]
+- Fixed ambiguity with `vector<array>` options. [#1147][]
+- Fixed bug parsing negative floating point values without a leading zero.
+  [#1140][]
+- Fixed spelling mistake in `Error.hpp`. [#1129][]
+- Fixed compilation issue with MSVC 2017. [#1143][]
+- Fixed issue with default strings of arrays in config output. [#1155][]
+- Fixed fuzzing issues with NaNs and certain error pathways. [#1138][]
+- Fixed fuzzer misinterpreting `--sub1.-` as a short option. [#1148][]
+- Fixed issue where parse_order was not cleared on reset. [#1218][]
+- modify code to make compatible with /GR- option in MSVC [#1206][]
+- Fixed issue where the version flag would not take precedence over option
+  requirements [#1226][]
+- Fixed extra newlines being printed if a footer was in use [#1229][]
+
+[#1129]: https://github.com/CLIUtils/CLI11/pull/1129
+[#1136]: https://github.com/CLIUtils/CLI11/pull/1136
+[#1138]: https://github.com/CLIUtils/CLI11/pull/1138
+[#1140]: https://github.com/CLIUtils/CLI11/pull/1140
+[#1143]: https://github.com/CLIUtils/CLI11/pull/1143
+[#1147]: https://github.com/CLIUtils/CLI11/pull/1147
+[#1148]: https://github.com/CLIUtils/CLI11/pull/1148
+[#1150]: https://github.com/CLIUtils/CLI11/pull/1150
+[#1152]: https://github.com/CLIUtils/CLI11/pull/1152
+[#1155]: https://github.com/CLIUtils/CLI11/pull/1155
+[#1158]: https://github.com/CLIUtils/CLI11/pull/1158
+[#1160]: https://github.com/CLIUtils/CLI11/pull/1160
+[#1161]: https://github.com/CLIUtils/CLI11/pull/1161
+[#1162]: https://github.com/CLIUtils/CLI11/pull/1162
+[#1164]: https://github.com/CLIUtils/CLI11/pull/1164
+[#1167]: https://github.com/CLIUtils/CLI11/pull/1167
+[#1170]: https://github.com/CLIUtils/CLI11/pull/1170
+[#1172]: https://github.com/CLIUtils/CLI11/pull/1172
+[#1173]: https://github.com/CLIUtils/CLI11/pull/1173
+[#1178]: https://github.com/CLIUtils/CLI11/pull/1178
+[#1180]: https://github.com/CLIUtils/CLI11/pull/1180
+[#1181]: https://github.com/CLIUtils/CLI11/pull/1181
+[#1182]: https://github.com/CLIUtils/CLI11/pull/1182
+[#1185]: https://github.com/CLIUtils/CLI11/pull/1185
+[#1186]: https://github.com/CLIUtils/CLI11/pull/1186
+[#1187]: https://github.com/CLIUtils/CLI11/pull/1187
+[#1192]: https://github.com/CLIUtils/CLI11/pull/1192
+[#1196]: https://github.com/CLIUtils/CLI11/pull/1196
+[#1199]: https://github.com/CLIUtils/CLI11/pull/1199
+[#1203]: https://github.com/CLIUtils/CLI11/pull/1203
+[#1206]: https://github.com/CLIUtils/CLI11/pull/1206
+[#1218]: https://github.com/CLIUtils/CLI11/pull/1218
+[#1225]: https://github.com/CLIUtils/CLI11/pull/1225
+[#1226]: https://github.com/CLIUtils/CLI11/pull/1226
+[#1229]: https://github.com/CLIUtils/CLI11/pull/1229
+
+## Version 2.5: Help Formatter
+
+This version adds a new formatter with improved control capabilities and output
+aligned with standards for help output. It also adds a modifier to enable use of
+non-standard option names, along with several bug fixes for edge cases in string
+and config file parsing.
+
+- Improved help formatter [#866][], better aligns help generation with UNIX
+  standards and allows use in help2man. [#1093][]
+- Added mechanism to allow option groups to be hidden and all options to be
+  considered part of the parent for help display [#1039][]
+- Added a modifier to allow non-standard single flag option names such as
+  `-option`. [#1078][]
+- Added modifier for subcommands to disable fallthrough, which can resolve some
+  issues with positional arguments [#1073][]
+- Added polish to config file output, removing unnecessary output and adding
+  modifier to control output of default values [#1075][]
+- Added ability to specify pair/tuple defaults and improved parsing [#1081][]
+- Bugfix: Take the configurability of an option name into account when
+  determining naming conflicts [#1049][]
+- Bugfix: Fixed an issue where an extra subcommand header was being printed in
+  the output [#1058][]
+- Bugfix: Added additional fuzzing tests and fixes for a bug in escape string
+  processing, and resolved inconsistencies in the handling of `{}` between
+  command line parsing and config file parsing. [#1060][]
+- Bugfix: Improved handling of ambiguities in vector input processing for config
+  files, specifically in the case of vector of vector inputs. [#1069][]
+- Bugfix: Fixed an issue in the handling of uint8_t enums, and issues related to
+  single element tuples [#1087][]
+- Bugfix: Fixed an issue with binary strings containing a `\x` [#1097][]
+- Bugfix: Moved the help generation priority so it triggers before config file
+  processing [#1106][]
+- Bugfix: Fixed an issue where max/min on positionals was not being respected
+  and optional positionals were being ignored [#1108][]
+- Bugfix: Fixed an issue with strings which started and ended with brackets
+  being misinterpreted as vectors. Parsing now has special handling of strings
+  which start with `[[` [#1110][]
+- Bugfix: Fixed some macros for support in C++26 related to wide string parsing
+  [#1113][]
+- Bugfix: Allowed trailing spaces on numeric string conversions [#1115][]
+- Docs: Updated pymod.find_installation to find Python in meson.build [#1076][]
+- Docs: Added example for transform validators [#689][]
+- Docs: Fixed several spelling mistakes [#1101][]
+- Backend: Updated copyright dates to 2025 [#1112][]
+- Backend: Updated CMAKE minimum version to 3.10 [#1084][]
+
+[#1039]: https://github.com/CLIUtils/CLI11/pull/1039
+[#1049]: https://github.com/CLIUtils/CLI11/pull/1049
+[#1058]: https://github.com/CLIUtils/CLI11/pull/1058
+[#1060]: https://github.com/CLIUtils/CLI11/pull/1060
+[#1069]: https://github.com/CLIUtils/CLI11/pull/1069
+[#866]: https://github.com/CLIUtils/CLI11/pull/866
+[#1073]: https://github.com/CLIUtils/CLI11/pull/1073
+[#1075]: https://github.com/CLIUtils/CLI11/pull/1075
+[#689]: https://github.com/CLIUtils/CLI11/pull/689
+[#1076]: https://github.com/CLIUtils/CLI11/pull/1076
+[#1078]: https://github.com/CLIUtils/CLI11/pull/1078
+[#1081]: https://github.com/CLIUtils/CLI11/pull/1081
+[#1084]: https://github.com/CLIUtils/CLI11/pull/1084
+[#1087]: https://github.com/CLIUtils/CLI11/pull/1087
+[#1093]: https://github.com/CLIUtils/CLI11/pull/1093
+[#1097]: https://github.com/CLIUtils/CLI11/pull/1097
+[#1101]: https://github.com/CLIUtils/CLI11/pull/1101
+[#1106]: https://github.com/CLIUtils/CLI11/pull/1106
+[#1108]: https://github.com/CLIUtils/CLI11/pull/1108
+[#1110]: https://github.com/CLIUtils/CLI11/pull/1110
+[#1112]: https://github.com/CLIUtils/CLI11/pull/1112
+[#1113]: https://github.com/CLIUtils/CLI11/pull/1113
+[#1115]: https://github.com/CLIUtils/CLI11/pull/1115
+
 ## Version 2.4: Unicode and TOML support
 
 This version adds Unicode support, support for TOML standard including multiline
 strings, digit separators, string escape sequences,and dot notation. An initial
 round of a fuzzer was added to testing which has caught several bugs related to
 config file processing, and a few other edge cases not previously observed.
+
+NOTE: The fuzzer fixes have had some previously unrecognized changes to allowed
+positional names. Positional names with spaces are no longer allowed. This was
+not explicitly allowed but not disallowed either, and now it is no longer
+allowed as these options may be called in config file parsing.
 
 - Add Unicode support and bug fixes [#804][], [#923][], [#876][], [#848][],
   [#832][], [#987][]
@@ -81,6 +294,40 @@ config files
 [#996]: https://github.com/CLIUtils/CLI11/pull/996
 [#1000]: https://github.com/CLIUtils/CLI11/pull/1000
 [#1003]: https://github.com/CLIUtils/CLI11/pull/1003
+
+### Version 2.4.2: Build systems
+
+This version improves support for alternative build systems, like Meson and
+Bazel. The single-include file now is in its own subdirectory. Several smaller
+fixes as well.
+
+- Meson: fixes, cleanups, and modernizations [#1024][] & [#1025][]
+- Support building with Bazel [#1033][]
+- Restore non-arch dependent path for the pkgconfig file [#1012][]
+- Add `get_subcommand_no_throw` [#1016][]
+- Move single file to `single-include` folder [#1030][] & [#1036][]
+- Fixed `app.set_failure_message(...)` -> `app.failure_message(...)` [#1018][]
+- Add IWYU pragmas [#1008][]
+- Fix internal header include paths [#1011][]
+- Improved clarity in `RequiredError` [#1029][]
+- Added ability to use lexical_cast overloads constrained with enable_if
+  [#1021][]
+- Bug fixes in latest release related to environmental variable parsing from
+  option groups and unrecognized fields in a config file [#1005][]
+
+[#1005]: https://github.com/CLIUtils/CLI11/pull/1005
+[#1008]: https://github.com/CLIUtils/CLI11/pull/1008
+[#1011]: https://github.com/CLIUtils/CLI11/pull/1011
+[#1012]: https://github.com/CLIUtils/CLI11/pull/1012
+[#1016]: https://github.com/CLIUtils/CLI11/pull/1016
+[#1018]: https://github.com/CLIUtils/CLI11/pull/1018
+[#1021]: https://github.com/CLIUtils/CLI11/pull/1021
+[#1024]: https://github.com/CLIUtils/CLI11/pull/1024
+[#1025]: https://github.com/CLIUtils/CLI11/pull/1025
+[#1029]: https://github.com/CLIUtils/CLI11/pull/1029
+[#1030]: https://github.com/CLIUtils/CLI11/pull/1030
+[#1033]: https://github.com/CLIUtils/CLI11/pull/1033
+[#1036]: https://github.com/CLIUtils/CLI11/pull/1036
 
 ## Version 2.3: Precompilation Support
 
@@ -988,8 +1235,9 @@ functionality for tricky parsing situations.
 - Added `app.parse_order()` with original parse order
   ([#13](https://github.com/CLIUtils/CLI11/issues/13),
   [#16](https://github.com/CLIUtils/CLI11/pull/16))
-- Added `prefix_command()`, which is like `allow_extras` but instantly stops and
-  returns. ([#8](https://github.com/CLIUtils/CLI11/issues/8),
+- Added `prefix_command()`, which is like `allow_extras` but ceases processing
+  and puts all remaining args in the remaining_args structure.
+  [#8](https://github.com/CLIUtils/CLI11/issues/8),
   [#17](https://github.com/CLIUtils/CLI11/pull/17))
 - Removed Windows warning ([#10](https://github.com/CLIUtils/CLI11/issues/10),
   [#20](https://github.com/CLIUtils/CLI11/pull/20))
